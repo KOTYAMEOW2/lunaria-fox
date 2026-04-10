@@ -11,6 +11,24 @@ const schema = z.object({
       enabled: z.boolean(),
       cooldown: z.number(),
       mode: z.string(),
+      allow_roles: z.array(z.string()).optional(),
+      deny_roles: z.array(z.string()).optional(),
+      allow_users: z.array(z.string()).optional(),
+      deny_users: z.array(z.string()).optional(),
+      allow_groups: z.array(z.string()).optional(),
+      deny_groups: z.array(z.string()).optional(),
+      allow_channels: z.array(z.string()).optional(),
+      deny_channels: z.array(z.string()).optional(),
+    }),
+  ),
+  commandGroups: z.array(
+    z.object({
+      group_id: z.string(),
+      name: z.string(),
+      roles: z.array(z.string()),
+      scopes: z.array(z.string()),
+      color: z.string().nullable().optional(),
+      is_default: z.boolean().optional(),
     }),
   ),
   customCommands: z.array(
@@ -33,8 +51,8 @@ export async function POST(
     const { guildId } = await params;
     await requireGuildRequest(request, guildId);
     const payload = schema.parse(await request.json());
-    await saveCommandSettings(guildId, payload);
-    return NextResponse.json({ ok: true });
+    const result = await saveCommandSettings(guildId, payload);
+    return NextResponse.json({ ok: true, syncState: result.syncState });
   } catch (error) {
     return routeError(error);
   }

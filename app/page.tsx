@@ -14,10 +14,11 @@ export default async function HomePage() {
         <div className="container hero-panel">
           <div className="hero-copy">
             <span className="eyebrow">Lunaria Fox Platform</span>
-            <h1>Сайт и дашборд для Discord-бота уровня control plane.</h1>
+            <h1>Лендинг, дашборд и control plane для Lunaria Fox.</h1>
             <p>
-              Lunaria Fox получает не просто лендинг, а рабочую веб-платформу: публичный брендовый сайт, Discord OAuth,
-              дашборд по серверам, управление конфигами через Supabase и архитектуру под Cloudflare.
+              Lunaria Fox получает не декоративный сайт, а полноценную веб-платформу: брендовый фронт, Discord OAuth,
+              серверный dashboard, контроль конфигов через Supabase и связку, в которой бот реально применяет изменения
+              из панели.
             </p>
             <div className="hero-actions">
               <a className="primary-button" href={buildDashboardUrl("/dashboard")}>
@@ -34,15 +35,15 @@ export default async function HomePage() {
             <div className="hero-stats">
               <div className="stat-card">
                 <strong>Supabase</strong>
-                <span>единая модель данных между ботом и сайтом</span>
+                <span>единая модель данных между ботом, dashboard и premium-слоем</span>
               </div>
               <div className="stat-card">
-                <strong>Discord OAuth</strong>
-                <span>авторизация без ручного выбора серверов</span>
+                <strong>Live Sync</strong>
+                <span>dashboard ставит sync-state, бот видит revision и применяет изменения</span>
               </div>
               <div className="stat-card">
-                <strong>Cloudflare</strong>
-                <span>Pages для публички, отдельный runtime для dashboard</span>
+                <strong>Vercel</strong>
+                <span>нативный runtime для Next.js, OAuth и dashboard</span>
               </div>
             </div>
           </div>
@@ -52,11 +53,12 @@ export default async function HomePage() {
               <div className="fox-lines" />
             </div>
             <div className="panel">
-              <span className="eyebrow">Reference Matched</span>
-              <h3>Опора на реальный бандл бота</h3>
+              <span className="eyebrow">Control Plane</span>
+              <h3>Сайт не витрина, а реальная точка управления</h3>
               <p>
-                Сайт уже строится по фактическим модулям Lunaria Fox: moderation, tickets, VoiceMaster, server panel,
-                command registry, smart filter и branding.
+                Контур построен по реальным модулям Lunaria Fox: moderation, tickets, VoiceMaster, server panel,
+                premium branding, brand role, smart filter и command registry. Сохранение в панели теперь сопровождается
+                отдельным sync-state, чтобы видеть применение ботом.
               </p>
             </div>
           </div>

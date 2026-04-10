@@ -104,6 +104,23 @@ export type PremiumAnalyticsSummary = {
   recentEventTypes: Array<{ eventType: string; count: number }>;
 };
 
+export type DashboardSyncStateRow = {
+  guild_id: string;
+  revision: number | null;
+  requested_at: string | null;
+  requested_by: string | null;
+  requested_source: string | null;
+  last_section: string | null;
+  changed_keys: string[] | null;
+  site_updated_at: string | null;
+  bot_seen_at: string | null;
+  bot_applied_at: string | null;
+  bot_applied_revision: number | null;
+  status: string | null;
+  last_error: string | null;
+  meta: Json | null;
+};
+
 export type GuildRoleRow = {
   guild_id: string;
   role_id: string;
@@ -333,4 +350,5 @@ export type GuildDashboardData = {
   premiumSettings: GuildPremiumSettingsRow | null;
   premiumAnalytics: PremiumAnalyticsSummary;
   premiumEnabled: boolean;
+  syncState: DashboardSyncStateRow | null;
 };

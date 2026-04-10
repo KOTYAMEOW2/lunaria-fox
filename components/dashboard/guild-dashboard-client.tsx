@@ -1,8 +1,8 @@
 "use client";
 
-import { startTransition, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 
-import type { GuildDashboardData } from "@/lib/types";
+import type { DashboardSyncStateRow, GuildDashboardData } from "@/lib/types";
 import { formatDate, safeJsonParse } from "@/lib/utils";
 
 type Props = {
@@ -22,8 +22,30 @@ function toggleValue(list: string[], value: string) {
   return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
 }
 
+function csvList(value: string[] | null | undefined) {
+  return Array.isArray(value) ? value.join(", ") : "";
+}
+
+function parseCsv(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function summarizeSyncState(syncState: DashboardSyncStateRow | null) {
+  if (!syncState) return "Sync table not configured.";
+  const status = String(syncState.status || "idle").toLowerCase();
+  if (status === "queued") return `Queued: rev ${syncState.revision || 0}`;
+  if (status === "processing") return `Applying: rev ${syncState.revision || 0}`;
+  if (status === "applied") return `Applied: rev ${syncState.bot_applied_revision || syncState.revision || 0}`;
+  if (status === "error") return syncState.last_error || "Sync error";
+  return `Idle: rev ${syncState.revision || 0}`;
+}
+
 export function GuildDashboardClient({ guildId, data }: Props) {
   const [status, setStatus] = useState<Record<string, string>>({});
+  const [syncState, setSyncState] = useState<DashboardSyncStateRow | null>(data.syncState);
 
   const [overview, setOverview] = useState({
     prefix: data.config?.prefix || ".",
@@ -49,9 +71,28 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           enabled: current?.enabled ?? true,
           cooldown: current?.cooldown ?? 0,
           mode: current?.mode || "inherit",
+          allow_roles: csvList(current?.allow_roles),
+          deny_roles: csvList(current?.deny_roles),
+          allow_users: csvList(current?.allow_users),
+          deny_users: csvList(current?.deny_users),
+          allow_groups: csvList(current?.allow_groups),
+          deny_groups: csvList(current?.deny_groups),
+          allow_channels: csvList(current?.allow_channels),
+          deny_channels: csvList(current?.deny_channels),
         };
       }),
     );
+
+  const [commandGroups, setCommandGroups] = useState(
+    (data.commandGroups || []).map((group) => ({
+      group_id: group.group_id,
+      name: group.name || "",
+      roles: csvList(group.roles),
+      scopes: csvList(group.scopes),
+      color: group.color || "",
+      is_default: group.is_default ?? false,
+    })),
+  );
 
   const [customCommands, setCustomCommands] = useState(
     (data.customCommands || []).map((command) => ({
@@ -187,6 +228,36 @@ export function GuildDashboardClient({ guildId, data }: Props) {
       (data.premiumSettings?.welcome_settings as { dm_message?: string } | null)?.dm_message || "",
   });
 
+  useEffect(() => {
+    let disposed = false;
+
+    const refresh = async () => {
+      try {
+        const response = await fetch(`/api/dashboard/${guildId}/sync`, {
+          method: "GET",
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const body = (await response.json()) as { syncState?: DashboardSyncStateRow | null };
+        if (!disposed) {
+          setSyncState(body.syncState || null);
+        }
+      } catch {
+        // keep the latest known state on client
+      }
+    };
+
+    refresh().catch(() => {});
+    const timer = setInterval(() => {
+      refresh().catch(() => {});
+    }, 7000);
+
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
+  }, [guildId]);
+
   async function save(section: string, payload: unknown) {
     setStatus((current) => ({ ...current, [section]: "Saving..." }));
 
@@ -200,12 +271,23 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           body: JSON.stringify(payload),
         });
 
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          syncState?: DashboardSyncStateRow | null;
+        };
+
         if (!response.ok) {
-          const body = (await response.json().catch(() => ({}))) as { error?: string };
           throw new Error(body.error || "Request failed.");
         }
 
-        setStatus((current) => ({ ...current, [section]: "Saved." }));
+        if (body.syncState) {
+          setSyncState(body.syncState);
+        }
+
+        setStatus((current) => ({
+          ...current,
+          [section]: body.syncState ? `Saved. ${summarizeSyncState(body.syncState)}` : "Saved.",
+        }));
       } catch (error) {
         setStatus((current) => ({
           ...current,
@@ -218,6 +300,13 @@ export function GuildDashboardClient({ guildId, data }: Props) {
   return (
     <div className="dashboard-grid">
       <aside className="dashboard-sidebar panel">
+        <div className="sync-orb">
+          <span className={`sync-dot sync-${String(syncState?.status || "idle").toLowerCase()}`} />
+          <div>
+            <strong>Bot Sync</strong>
+            <p>{summarizeSyncState(syncState)}</p>
+          </div>
+        </div>
         <span className="eyebrow">Sections</span>
         <div className="sidebar-links">
           <a href="#overview">Overview</a>
@@ -231,6 +320,43 @@ export function GuildDashboardClient({ guildId, data }: Props) {
       </aside>
 
       <div className="dashboard-sections">
+        <section className="dashboard-section panel control-plane-panel">
+          <div className="dashboard-head">
+            <div>
+              <span className="eyebrow">Control Plane</span>
+              <h2>Сайт управляет ботом через Supabase</h2>
+            </div>
+            <span className={`badge ${syncState?.status === "applied" ? "success" : syncState?.status === "error" ? "warn" : "muted"}`}>
+              {syncState?.status || "fallback"}
+            </span>
+          </div>
+
+          <div className="control-grid">
+            <div className="control-card">
+              <strong>Queued revision</strong>
+              <span>{syncState?.revision || 0}</span>
+            </div>
+            <div className="control-card">
+              <strong>Applied revision</strong>
+              <span>{syncState?.bot_applied_revision || 0}</span>
+            </div>
+            <div className="control-card">
+              <strong>Last requested</strong>
+              <span>{formatDate(syncState?.requested_at)}</span>
+            </div>
+            <div className="control-card">
+              <strong>Last applied</strong>
+              <span>{formatDate(syncState?.bot_applied_at)}</span>
+            </div>
+          </div>
+
+          <div className="panel-note control-plane-note">
+            <strong>Current path:</strong> dashboard writes to Supabase, bot sees the revision, refreshes caches and applies runtime changes.
+            {syncState?.last_section ? ` Last section: ${syncState.last_section}.` : ""}
+            {syncState?.last_error ? ` Error: ${syncState.last_error}` : ""}
+          </div>
+        </section>
+
         <section className="dashboard-section panel" id="overview">
           <div className="dashboard-head">
             <div>
@@ -420,6 +546,243 @@ export function GuildDashboardClient({ guildId, data }: Props) {
 
           <div className="section">
             <div className="inline-row">
+              <h3>Command Groups</h3>
+              <button
+                className="secondary-button"
+                onClick={() =>
+                  setCommandGroups((current) => [
+                    ...current,
+                    {
+                      group_id: "",
+                      name: "",
+                      roles: "",
+                      scopes: "",
+                      color: "",
+                      is_default: false,
+                    },
+                  ])
+                }
+                type="button"
+              >
+                Add group
+              </button>
+            </div>
+
+            <div className="stack">
+              {commandGroups.length > 0 ? (
+                commandGroups.map((group, index) => (
+                  <div className="panel-note" key={`${group.group_id || "group"}-${index}`}>
+                    <div className="form-grid">
+                      <div className="field">
+                        <label>Group key</label>
+                        <input
+                          value={group.group_id}
+                          onChange={(event) =>
+                            setCommandGroups((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, group_id: event.target.value } : item,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Name</label>
+                        <input
+                          value={group.name}
+                          onChange={(event) =>
+                            setCommandGroups((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, name: event.target.value } : item,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Roles (IDs)</label>
+                        <input
+                          value={group.roles}
+                          onChange={(event) =>
+                            setCommandGroups((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, roles: event.target.value } : item,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Scopes</label>
+                        <input
+                          value={group.scopes}
+                          onChange={(event) =>
+                            setCommandGroups((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, scopes: event.target.value } : item,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Color</label>
+                        <input
+                          value={group.color}
+                          onChange={(event) =>
+                            setCommandGroups((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, color: event.target.value } : item,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      <label className="checkbox-card">
+                        <input
+                          checked={group.is_default}
+                          type="checkbox"
+                          onChange={() =>
+                            setCommandGroups((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, is_default: !item.is_default } : item,
+                              ),
+                            )
+                          }
+                        />
+                        <span>Default group</span>
+                      </label>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="panel-note">Группы команд пока не заданы. Они нужны для allow/deny через role bundles.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="section">
+            <h3>Advanced Access Rules</h3>
+            <div className="stack">
+              {commandPermissions.map((permission, index) => (
+                <div className="panel-note" key={`access-${permission.command_name}`}>
+                  <div className="inline-row">
+                    <strong>/{permission.command_name}</strong>
+                    <span className="badge muted">{permission.mode}</span>
+                  </div>
+                  <div className="form-grid" style={{ marginTop: 12 }}>
+                    <div className="field">
+                      <label>Allow roles</label>
+                      <input
+                        value={permission.allow_roles}
+                        onChange={(event) =>
+                          setCommandPermissions((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, allow_roles: event.target.value } : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Deny roles</label>
+                      <input
+                        value={permission.deny_roles}
+                        onChange={(event) =>
+                          setCommandPermissions((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, deny_roles: event.target.value } : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Allow channels</label>
+                      <input
+                        value={permission.allow_channels}
+                        onChange={(event) =>
+                          setCommandPermissions((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, allow_channels: event.target.value } : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Deny channels</label>
+                      <input
+                        value={permission.deny_channels}
+                        onChange={(event) =>
+                          setCommandPermissions((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, deny_channels: event.target.value } : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Allow groups</label>
+                      <input
+                        value={permission.allow_groups}
+                        onChange={(event) =>
+                          setCommandPermissions((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, allow_groups: event.target.value } : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Deny groups</label>
+                      <input
+                        value={permission.deny_groups}
+                        onChange={(event) =>
+                          setCommandPermissions((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, deny_groups: event.target.value } : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Allow users</label>
+                      <input
+                        value={permission.allow_users}
+                        onChange={(event) =>
+                          setCommandPermissions((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, allow_users: event.target.value } : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Deny users</label>
+                      <input
+                        value={permission.deny_users}
+                        onChange={(event) =>
+                          setCommandPermissions((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, deny_users: event.target.value } : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="section">
+            <div className="inline-row">
               <h3>Custom Commands</h3>
               <button
                 className="secondary-button"
@@ -523,13 +886,26 @@ export function GuildDashboardClient({ guildId, data }: Props) {
             className="primary-button"
             onClick={() =>
               save("commands", {
-                commandPermissions,
+                commandPermissions: commandPermissions.map((permission) => ({
+                  ...permission,
+                  allow_roles: parseCsv(permission.allow_roles),
+                  deny_roles: parseCsv(permission.deny_roles),
+                  allow_users: parseCsv(permission.allow_users),
+                  deny_users: parseCsv(permission.deny_users),
+                  allow_groups: parseCsv(permission.allow_groups),
+                  deny_groups: parseCsv(permission.deny_groups),
+                  allow_channels: parseCsv(permission.allow_channels),
+                  deny_channels: parseCsv(permission.deny_channels),
+                })),
+                commandGroups: commandGroups.map((group) => ({
+                  ...group,
+                  roles: parseCsv(group.roles),
+                  scopes: parseCsv(group.scopes),
+                  color: group.color || null,
+                })),
                 customCommands: customCommands.map((command) => ({
                   ...command,
-                  aliases: command.aliases
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
+                  aliases: parseCsv(command.aliases),
                 })),
               })
             }

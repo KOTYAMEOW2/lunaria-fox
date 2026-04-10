@@ -1,5 +1,102 @@
+import type { DashboardSyncStateRow } from "@/lib/types";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { uniqueStrings } from "@/lib/utils";
+
+type SyncOptions = {
+  section: string;
+  requestedBy?: string | null;
+  changedKeys?: string[];
+  meta?: Record<string, unknown>;
+};
+
+type CommandPermissionPayload = {
+  command_name: string;
+  enabled: boolean;
+  cooldown: number;
+  mode: string;
+  allow_roles?: string[];
+  deny_roles?: string[];
+  allow_users?: string[];
+  deny_users?: string[];
+  allow_groups?: string[];
+  deny_groups?: string[];
+  allow_channels?: string[];
+  deny_channels?: string[];
+};
+
+type CommandGroupPayload = {
+  group_id: string;
+  name: string;
+  roles: string[];
+  scopes: string[];
+  color?: string | null;
+  is_default?: boolean;
+};
+
+type CustomCommandPayload = {
+  command_name: string;
+  description: string;
+  response_text: string;
+  aliases: string[];
+  enabled: boolean;
+  cooldown: number;
+};
+
+function asErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unknown sync error.";
+}
+
+function dedupeStrings(input: string[] | undefined) {
+  return uniqueStrings(input || []);
+}
+
+async function queueGuildSync(guildId: string, options: SyncOptions) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null as DashboardSyncStateRow | null;
+
+  const now = new Date().toISOString();
+  const current = await supabase
+    .from("dashboard_sync_states")
+    .select("*")
+    .eq("guild_id", guildId)
+    .maybeSingle();
+
+  if (current.error) {
+    console.warn("[dashboard-sync] read failed:", current.error.message);
+    return null;
+  }
+
+  const currentRow = (current.data || null) as DashboardSyncStateRow | null;
+  const revision = Number(currentRow?.revision || 0) + 1;
+
+  const { data, error } = await supabase
+    .from("dashboard_sync_states")
+    .upsert(
+      {
+        guild_id: guildId,
+        revision,
+        requested_at: now,
+        requested_by: options.requestedBy || null,
+        requested_source: "dashboard",
+        last_section: options.section,
+        changed_keys: dedupeStrings(options.changedKeys),
+        site_updated_at: now,
+        status: "queued",
+        last_error: null,
+        meta: options.meta || {},
+      },
+      { onConflict: "guild_id" },
+    )
+    .select("*")
+    .single();
+
+  if (error) {
+    console.warn("[dashboard-sync] upsert failed:", error.message);
+    return null;
+  }
+
+  return (data as DashboardSyncStateRow) || null;
+}
 
 export async function saveGuildOverview(
   guildId: string,
@@ -23,8 +120,8 @@ export async function saveGuildOverview(
       language: payload.language,
       appeals_channel_id: payload.appealsChannelId,
       dm_punish_enabled: payload.dmPunishEnabled,
-      mod_roles: uniqueStrings(payload.modRoles),
-      admin_roles: uniqueStrings(payload.adminRoles),
+      mod_roles: dedupeStrings(payload.modRoles),
+      admin_roles: dedupeStrings(payload.adminRoles),
       enabled_modules: payload.enabledModules,
       updated_at: new Date().toISOString(),
     },
@@ -32,6 +129,14 @@ export async function saveGuildOverview(
   );
 
   if (error) throw error;
+
+  return {
+    syncState: await queueGuildSync(guildId, {
+      section: "overview",
+      changedKeys: ["prefix", "language", "appeals_channel_id", "dm_punish_enabled", "mod_roles", "admin_roles", "enabled_modules"],
+      meta: { enabledModules: Object.keys(payload.enabledModules) },
+    }),
+  };
 }
 
 export async function saveBrandingSettings(
@@ -79,6 +184,22 @@ export async function saveBrandingSettings(
 
   if (customizationError) throw customizationError;
   if (panelError) throw panelError;
+
+  return {
+    syncState: await queueGuildSync(guildId, {
+      section: "branding",
+      changedKeys: [
+        "embed_color",
+        "footer_text",
+        "footer_icon_url",
+        "webhook_name",
+        "webhook_avatar_url",
+        "banner_url",
+        "server_panel.enabled",
+        "server_panel.channel_id",
+      ],
+    }),
+  };
 }
 
 export async function saveModerationSettings(
@@ -104,8 +225,8 @@ export async function saveModerationSettings(
         guild_id: guildId,
         enabled: payload.smartFilterEnabled,
         action: payload.smartFilterAction,
-        banned_words: uniqueStrings(payload.bannedWords),
-        regex_rules: uniqueStrings(payload.regexRules),
+        banned_words: dedupeStrings(payload.bannedWords),
+        regex_rules: dedupeStrings(payload.regexRules),
         updated_at: now,
       },
       { onConflict: "guild_id" },
@@ -144,20 +265,22 @@ export async function saveModerationSettings(
     const { error } = await supabase.from("guild_rules").insert(rows);
     if (error) throw error;
   }
+
+  return {
+    syncState: await queueGuildSync(guildId, {
+      section: "moderation",
+      changedKeys: ["smartfilter_configs", "guild_log_settings", "guild_rules"],
+      meta: { rulesCount: rows.length },
+    }),
+  };
 }
 
 export async function saveCommandSettings(
   guildId: string,
   payload: {
-    commandPermissions: Array<{ command_name: string; enabled: boolean; cooldown: number; mode: string }>;
-    customCommands: Array<{
-      command_name: string;
-      description: string;
-      response_text: string;
-      aliases: string[];
-      enabled: boolean;
-      cooldown: number;
-    }>;
+    commandPermissions: CommandPermissionPayload[];
+    commandGroups: CommandGroupPayload[];
+    customCommands: CustomCommandPayload[];
   },
 ) {
   const supabase = getSupabaseAdmin();
@@ -171,6 +294,14 @@ export async function saveCommandSettings(
     enabled: item.enabled,
     cooldown: item.cooldown,
     mode: item.mode === "allowlist" ? "allowlist" : "inherit",
+    allow_roles: dedupeStrings(item.allow_roles),
+    deny_roles: dedupeStrings(item.deny_roles),
+    allow_users: dedupeStrings(item.allow_users),
+    deny_users: dedupeStrings(item.deny_users),
+    allow_groups: dedupeStrings(item.allow_groups),
+    deny_groups: dedupeStrings(item.deny_groups),
+    allow_channels: dedupeStrings(item.allow_channels),
+    deny_channels: dedupeStrings(item.deny_channels),
     updated_at: now,
   }));
 
@@ -178,6 +309,28 @@ export async function saveCommandSettings(
     const { error } = await supabase.from("command_permissions").upsert(permissionsRows, {
       onConflict: "guild_id,command_name",
     });
+    if (error) throw error;
+  }
+
+  const { error: deleteGroupsError } = await supabase.from("command_groups").delete().eq("guild_id", guildId);
+  if (deleteGroupsError) throw deleteGroupsError;
+
+  const groupRows = payload.commandGroups
+    .filter((group) => group.group_id)
+    .map((group, index) => ({
+      guild_id: guildId,
+      group_id: group.group_id.toLowerCase(),
+      name: group.name,
+      roles: dedupeStrings(group.roles),
+      scopes: dedupeStrings(group.scopes),
+      sort_order: index + 1,
+      color: group.color || null,
+      is_default: group.is_default === true,
+      updated_at: now,
+    }));
+
+  if (groupRows.length > 0) {
+    const { error } = await supabase.from("command_groups").insert(groupRows);
     if (error) throw error;
   }
 
@@ -194,7 +347,7 @@ export async function saveCommandSettings(
       enabled: command.enabled,
       response_mode: "text",
       response_text: command.response_text,
-      aliases: uniqueStrings(command.aliases),
+      aliases: dedupeStrings(command.aliases),
       cooldown: command.cooldown,
       updated_at: now,
     }));
@@ -203,6 +356,18 @@ export async function saveCommandSettings(
     const { error } = await supabase.from("custom_commands").insert(customCommandRows);
     if (error) throw error;
   }
+
+  return {
+    syncState: await queueGuildSync(guildId, {
+      section: "commands",
+      changedKeys: ["command_permissions", "command_groups", "custom_commands"],
+      meta: {
+        permissionsCount: permissionsRows.length,
+        groupsCount: groupRows.length,
+        customCommandsCount: customCommandRows.length,
+      },
+    }),
+  };
 }
 
 export async function savePremiumSettings(
@@ -233,7 +398,7 @@ export async function savePremiumSettings(
         guild_id: guildId,
         premium_active: payload.premiumActive,
         plan_name: payload.planName || "premium",
-        features: uniqueStrings(payload.features),
+        features: dedupeStrings(payload.features),
         server_panel_settings: payload.serverPanelSettings,
         welcome_settings: payload.welcomeSettings,
         analytics_settings: payload.analyticsSettings,
@@ -256,6 +421,14 @@ export async function savePremiumSettings(
 
   if (premiumError) throw premiumError;
   if (brandRoleError) throw brandRoleError;
+
+  return {
+    syncState: await queueGuildSync(guildId, {
+      section: "premium",
+      changedKeys: ["guild_premium_settings", "brand_roles"],
+      meta: { features: dedupeStrings(payload.features) },
+    }),
+  };
 }
 
 export async function saveTicketSettings(
@@ -296,7 +469,7 @@ export async function saveTicketSettings(
         default_category_id: payload.defaultCategoryId,
         default_log_channel_id: payload.defaultLogChannelId,
         transcript_channel_id: payload.transcriptChannelId,
-        support_roles: uniqueStrings(payload.supportRoles),
+        support_roles: dedupeStrings(payload.supportRoles),
         max_open_per_user: payload.maxOpenPerUser,
         updated_at: now,
       },
@@ -332,6 +505,14 @@ export async function saveTicketSettings(
     const { error } = await supabase.from("ticket_panels").insert(panels);
     if (error) throw error;
   }
+
+  return {
+    syncState: await queueGuildSync(guildId, {
+      section: "tickets",
+      changedKeys: ["ticket_configs", "ticket_panels"],
+      meta: { panelsCount: panels.length },
+    }),
+  };
 }
 
 export async function saveVoicemasterSettings(
@@ -375,4 +556,27 @@ export async function saveVoicemasterSettings(
   );
 
   if (error) throw error;
+
+  return {
+    syncState: await queueGuildSync(guildId, {
+      section: "voice",
+      changedKeys: ["voicemaster_configs"],
+      meta: { hubCount: Object.keys(payload.hubs || {}).length },
+    }),
+  };
+}
+
+export async function markGuildSyncError(guildId: string, error: unknown) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return;
+
+  await supabase.from("dashboard_sync_states").upsert(
+    {
+      guild_id: guildId,
+      status: "error",
+      last_error: asErrorMessage(error),
+      site_updated_at: new Date().toISOString(),
+    },
+    { onConflict: "guild_id" },
+  );
 }

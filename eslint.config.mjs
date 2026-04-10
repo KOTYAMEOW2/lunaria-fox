@@ -5,9 +5,9 @@ const config = [
   {
     ignores: [
       ".next/**",
-      ".open-next/**",
       "node_modules/**",
       "source_bundle/**",
+      "release_bundle*/**",
     ],
   },
 ];

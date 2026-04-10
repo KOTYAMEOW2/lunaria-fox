@@ -28,8 +28,8 @@ export async function POST(
     const { guildId } = await params;
     await requireGuildRequest(request, guildId);
     const payload = schema.parse(await request.json());
-    await saveModerationSettings(guildId, payload);
-    return NextResponse.json({ ok: true });
+    const result = await saveModerationSettings(guildId, payload);
+    return NextResponse.json({ ok: true, syncState: result.syncState });
   } catch (error) {
     return routeError(error);
   }

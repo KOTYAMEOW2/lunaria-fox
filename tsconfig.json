@@ -39,7 +39,6 @@
   ],
   "exclude": [
     "node_modules",
-    "release_bundle",
-    "release_bundle_final"
+    "release_bundle*"
   ]
 }

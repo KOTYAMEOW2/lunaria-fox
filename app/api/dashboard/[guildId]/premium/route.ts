@@ -27,8 +27,8 @@ export async function POST(
     const { guildId } = await params;
     await requireGuildRequest(request, guildId);
     const payload = schema.parse(await request.json());
-    await savePremiumSettings(guildId, payload);
-    return NextResponse.json({ ok: true });
+    const result = await savePremiumSettings(guildId, payload);
+    return NextResponse.json({ ok: true, syncState: result.syncState });
   } catch (error) {
     return routeError(error);
   }

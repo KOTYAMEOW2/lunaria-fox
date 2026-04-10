@@ -15,13 +15,13 @@
 
 - Это адрес публичного сайта.
 - Для локальной разработки: `http://localhost:3000`
-- Для Cloudflare Pages: твой Pages URL или свой домен, например `https://lunariafox.ru`
+- Для Vercel: `https://твой-проект.vercel.app` или свой домен, например `https://lunariafox.ru`
 
 `NEXT_PUBLIC_DASHBOARD_URL`
 
 - Это адрес панели управления, куда должны вести кнопки `Dashboard` и `Login with Discord`.
 - Если сайт и dashboard живут на одном домене, ставь то же значение, что и `NEXT_PUBLIC_SITE_URL`.
-- Если публичный сайт на Cloudflare Pages, а dashboard отдельно, ставь адрес панели, например `https://panel.lunariafox.ru`
+- Если панель вынесена отдельно, ставь адрес панели, например `https://panel.lunariafox.ru`
 
 `NEXT_PUBLIC_SUPPORT_URL`
 
@@ -55,7 +55,7 @@ https://discord.com/oauth2/authorize?client_id=APP_ID&scope=bot%20applications.c
 
 - Это самый важный URL для авторизации.
 - Он должен один в один совпадать с redirect в Discord OAuth2.
-- Если dashboard живёт отдельно, сюда ставится адрес dashboard runtime, а не Pages.
+- Если dashboard живёт отдельно, сюда ставится адрес панели.
 - Пример для локалки:
 
 ```text
@@ -65,7 +65,7 @@ http://localhost:3000/api/auth/discord/callback
 - Пример для прода:
 
 ```text
-https://panel.lunariafox.ru/api/auth/discord/callback
+https://lunaria-fox.vercel.app/api/auth/discord/callback
 ```
 
 - Этот же адрес надо добавить в:
@@ -182,3 +182,8 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 - `DISCORD_TOKEN` бота и `DISCORD_CLIENT_SECRET` сайта — это разные вещи
 - `SUPABASE_SERVICE_ROLE_KEY` и `anon public key` — это разные вещи
 - `NEXT_PUBLIC_SITE_URL` и `NEXT_PUBLIC_DASHBOARD_URL` могут совпадать, а могут быть разными
+
+## 6. Что применить в Supabase кроме таблиц бота
+
+- `docs/supabase-premium.sql` — premium-слой сайта и бота
+- `docs/supabase-control-plane.sql` — sync-status между сайтом и ботом, чтобы dashboard показывал queued/applied/error и бот форсировал refresh по revision

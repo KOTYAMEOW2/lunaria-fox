@@ -9,6 +9,7 @@ import type {
   CommandRegistryRow,
   CustomCommandRow,
   DiscordSession,
+  DashboardSyncStateRow,
   GuildChannelRow,
   GuildConfigRow,
   GuildDashboardData,
@@ -131,6 +132,20 @@ export async function getPublicCommandDirectory() {
   return (data || []) as CommandRegistryRow[];
 }
 
+export async function getGuildSyncState(guildId: string) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null as DashboardSyncStateRow | null;
+
+  const { data, error } = await supabase
+    .from("dashboard_sync_states")
+    .select("*")
+    .eq("guild_id", guildId)
+    .maybeSingle();
+
+  if (error) return null;
+  return (data as DashboardSyncStateRow | null) || null;
+}
+
 export async function getGuildDashboardData(guildId: string): Promise<GuildDashboardData> {
   const supabase = getSupabaseAdmin();
   const premiumFallback = getPremiumGuildSet().has(guildId);
@@ -159,6 +174,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
       premiumSettings: null,
       premiumAnalytics: emptyPremiumAnalytics(),
       premiumEnabled: premiumFallback,
+      syncState: null,
     };
   }
 
@@ -184,6 +200,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     voicemasterRooms,
     premiumSettings,
     analyticsEvents,
+    syncState,
   ] = await Promise.all([
     supabase.from("bot_guilds").select("*").eq("guild_id", guildId).maybeSingle(),
     supabase.from("guild_configs").select("*").eq("guild_id", guildId).maybeSingle(),
@@ -211,6 +228,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
       .eq("guild_id", guildId)
       .order("created_at", { ascending: false })
       .limit(500),
+    supabase.from("dashboard_sync_states").select("*").eq("guild_id", guildId).maybeSingle(),
   ]);
 
   const premiumSettingsRow =
@@ -246,5 +264,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
           ((analyticsEvents.data || []) as Array<{ event_type: string | null; payload: { command_name?: string } | null }>),
         ),
     premiumEnabled,
+    syncState:
+      syncState.error || !syncState.data ? null : (syncState.data as DashboardSyncStateRow | null),
   };
 }

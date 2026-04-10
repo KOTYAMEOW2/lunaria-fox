@@ -34,9 +34,28 @@ export default async function GuildDashboardPage({
           <span className="eyebrow">Guild Dashboard</span>
           <h1>{data.guild?.name || `Server ${guildId}`}</h1>
           <p>
-            Дашборд пишет прямо в Supabase-таблицы Lunaria Fox. Всё, что меняется здесь, строится вокруг той же
-            `guild_id`-centric модели, что и у самого бота.
+            Это уже не просто web-panel. Дашборд пишет в те же таблицы Supabase, которыми живёт бот, и теперь держит
+            отдельный sync-state, чтобы было видно не только сохранение, но и факт применения настроек в рантайме.
           </p>
+        </div>
+
+        <div className="control-grid page-control-grid">
+          <div className="control-card">
+            <strong>Channels indexed</strong>
+            <span>{data.channels.length}</span>
+          </div>
+          <div className="control-card">
+            <strong>Roles indexed</strong>
+            <span>{data.roles.length}</span>
+          </div>
+          <div className="control-card">
+            <strong>Commands tracked</strong>
+            <span>{data.commandsRegistry.length}</span>
+          </div>
+          <div className="control-card">
+            <strong>Sync revision</strong>
+            <span>{data.syncState?.revision || 0}</span>
+          </div>
         </div>
 
         <GuildDashboardClient guildId={guildId} data={data} />
