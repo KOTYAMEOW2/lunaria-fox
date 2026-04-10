@@ -11,6 +11,7 @@
     "vercel-build": "next build --webpack"
   },
   "dependencies": {
+    "@supabase/ssr": "latest",
     "@supabase/supabase-js": "latest",
     "next": "latest",
     "react": "latest",
