@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { featureCards } from "@/lib/content";
+import { buildDashboardUrl } from "@/lib/public-env";
 
 const moduleCards = [
   "Overview и базовые guild settings",
@@ -46,9 +47,9 @@ export default function FeaturesPage() {
               ))}
             </div>
             <div className="stack-actions" style={{ marginTop: 18 }}>
-              <Link className="primary-button" href="/dashboard">
+              <a className="primary-button" href={buildDashboardUrl("/dashboard")}>
                 Open Dashboard
-              </Link>
+              </a>
               <Link className="secondary-button" href="/commands">
                 Browse Commands
               </Link>

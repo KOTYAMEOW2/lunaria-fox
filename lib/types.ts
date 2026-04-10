@@ -74,6 +74,36 @@ export type ServerPanelRow = {
   updated_at: string | null;
 };
 
+export type BrandRoleRow = {
+  guild_id: string;
+  role_id: string | null;
+  role_name: string | null;
+  color: string | null;
+  hoist: boolean | null;
+  mentionable: boolean | null;
+  updated_at: string | null;
+};
+
+export type GuildPremiumSettingsRow = {
+  guild_id: string;
+  premium_active: boolean | null;
+  plan_name: string | null;
+  features: string[] | null;
+  welcome_settings: Json | null;
+  server_panel_settings: Json | null;
+  analytics_settings: Json | null;
+  updated_at: string | null;
+};
+
+export type PremiumAnalyticsSummary = {
+  totalEvents: number;
+  commandCount: number;
+  memberJoinCount: number;
+  memberLeaveCount: number;
+  topCommands: Array<{ command: string; count: number }>;
+  recentEventTypes: Array<{ eventType: string; count: number }>;
+};
+
 export type GuildRoleRow = {
   guild_id: string;
   role_id: string;
@@ -285,6 +315,7 @@ export type GuildDashboardData = {
   config: GuildConfigRow | null;
   customizations: ServerCustomizationRow | null;
   serverPanel: ServerPanelRow | null;
+  brandRole: BrandRoleRow | null;
   roles: GuildRoleRow[];
   channels: GuildChannelRow[];
   commandsRegistry: CommandRegistryRow[];
@@ -299,5 +330,7 @@ export type GuildDashboardData = {
   recentTickets: TicketRow[];
   voicemasterConfig: VoicemasterConfigRow | null;
   voicemasterRooms: VoicemasterRoomRow[];
+  premiumSettings: GuildPremiumSettingsRow | null;
+  premiumAnalytics: PremiumAnalyticsSummary;
   premiumEnabled: boolean;
 };

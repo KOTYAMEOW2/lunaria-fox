@@ -10,6 +10,14 @@ type Props = {
   data: GuildDashboardData;
 };
 
+const premiumFeatureOptions = [
+  { key: "branding", label: "Premium Branding" },
+  { key: "brand-role", label: "Brand Role" },
+  { key: "analytics", label: "Analytics Pro" },
+  { key: "server-panel", label: "Server Panel Customization" },
+  { key: "welcome", label: "Welcome / Leave Branding" },
+] as const;
+
 function toggleValue(list: string[], value: string) {
   return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
 }
@@ -36,14 +44,14 @@ export function GuildDashboardClient({ guildId, data }: Props) {
   const [commandPermissions, setCommandPermissions] = useState(() =>
     data.commandsRegistry.map((command) => {
       const current = data.commandPermissions.find((item) => item.command_name === command.command_name);
-      return {
-        command_name: command.command_name,
-        enabled: current?.enabled ?? true,
-        cooldown: current?.cooldown ?? 0,
-        mode: current?.mode || "allow",
-      };
-    }),
-  );
+        return {
+          command_name: command.command_name,
+          enabled: current?.enabled ?? true,
+          cooldown: current?.cooldown ?? 0,
+          mode: current?.mode || "inherit",
+        };
+      }),
+    );
 
   const [customCommands, setCustomCommands] = useState(
     (data.customCommands || []).map((command) => ({
@@ -138,6 +146,45 @@ export function GuildDashboardClient({ guildId, data }: Props) {
     bannerUrl: data.customizations?.banner_url || "",
     panelEnabled: data.serverPanel?.enabled ?? false,
     panelChannelId: data.serverPanel?.channel_id || "",
+  });
+
+  const [premium, setPremium] = useState({
+    premiumActive: data.premiumSettings?.premium_active ?? data.premiumEnabled,
+    planName: data.premiumSettings?.plan_name || "premium",
+    features:
+      (data.premiumSettings?.features || []).length > 0
+        ? (data.premiumSettings?.features || [])
+        : ["branding", "brand-role", "analytics", "server-panel", "welcome"],
+    brandRoleName: data.brandRole?.role_name || "L U N A R I A   F O X",
+    brandRoleColor: data.brandRole?.color || "#9c7cff",
+    brandRoleHoist: data.brandRole?.hoist ?? true,
+    brandRoleMentionable: data.brandRole?.mentionable ?? false,
+    serverPanelTitle:
+      (data.premiumSettings?.server_panel_settings as { title?: string } | null)?.title || "",
+    serverPanelDescription:
+      (data.premiumSettings?.server_panel_settings as { description?: string } | null)?.description || "",
+    serverPanelFooter:
+      (data.premiumSettings?.server_panel_settings as { footer?: string } | null)?.footer || "",
+    welcomeEnabled:
+      (data.premiumSettings?.welcome_settings as { welcome_enabled?: boolean } | null)?.welcome_enabled ?? false,
+    welcomeChannelId:
+      (data.premiumSettings?.welcome_settings as { welcome_channel_id?: string } | null)?.welcome_channel_id || "",
+    welcomeTitle:
+      (data.premiumSettings?.welcome_settings as { welcome_title?: string } | null)?.welcome_title || "",
+    welcomeMessage:
+      (data.premiumSettings?.welcome_settings as { welcome_message?: string } | null)?.welcome_message || "",
+    leaveEnabled:
+      (data.premiumSettings?.welcome_settings as { leave_enabled?: boolean } | null)?.leave_enabled ?? false,
+    leaveChannelId:
+      (data.premiumSettings?.welcome_settings as { leave_channel_id?: string } | null)?.leave_channel_id || "",
+    leaveTitle:
+      (data.premiumSettings?.welcome_settings as { leave_title?: string } | null)?.leave_title || "",
+    leaveMessage:
+      (data.premiumSettings?.welcome_settings as { leave_message?: string } | null)?.leave_message || "",
+    sendDm:
+      (data.premiumSettings?.welcome_settings as { send_dm?: boolean } | null)?.send_dm ?? false,
+    dmMessage:
+      (data.premiumSettings?.welcome_settings as { dm_message?: string } | null)?.dm_message || "",
   });
 
   async function save(section: string, payload: unknown) {
@@ -362,8 +409,8 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                         )
                       }
                     >
-                      <option value="allow">allow</option>
-                      <option value="deny">deny</option>
+                      <option value="inherit">inherit</option>
+                      <option value="allowlist">allowlist</option>
                     </select>
                   </td>
                 </tr>
@@ -1112,23 +1159,282 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           <div className="dashboard-head">
             <div>
               <span className="eyebrow">Premium</span>
-              <h2>Текущий статус premium-гильдии</h2>
+              <h2>Premium-функции сервера</h2>
             </div>
-            <span className={`badge ${data.premiumEnabled ? "success" : "warn"}`}>
-              {data.premiumEnabled ? "Premium active" : "Free tier"}
+            <span className={`badge ${premium.premiumActive ? "success" : "warn"}`}>
+              {premium.premiumActive ? "Premium active" : "Free tier"}
             </span>
           </div>
 
-          <div className="stack">
-            <div className="panel-note">
-              В текущем бандле premium подтверждён через env-based список гильдий. Минимум уже зашит для VoiceMaster:
-              hide/show и bitrate выше 64 kbps.
+          <span className="badge muted">{status.premium || "Editing locally"}</span>
+
+          <div className="form-grid" style={{ marginTop: 18 }}>
+            <div className="field">
+              <label>Premium active</label>
+              <select
+                value={premium.premiumActive ? "true" : "false"}
+                onChange={(event) => setPremium({ ...premium, premiumActive: event.target.value === "true" })}
+              >
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
             </div>
-            <div className="panel-note">
-              Полноценный subscriptions/billing поток ещё потребует расширения backend-логики бота и отдельной платёжной
-              модели поверх текущего состояния.
+            <div className="field">
+              <label>Plan name</label>
+              <input value={premium.planName} onChange={(event) => setPremium({ ...premium, planName: event.target.value })} />
             </div>
           </div>
+
+          <div className="section">
+            <h3>Enabled features</h3>
+            <div className="checkbox-grid">
+              {premiumFeatureOptions.map((feature) => (
+                <label className="checkbox-card" key={feature.key}>
+                  <input
+                    checked={premium.features.includes(feature.key)}
+                    type="checkbox"
+                    onChange={() =>
+                      setPremium({
+                        ...premium,
+                        features: toggleValue(premium.features, feature.key),
+                      })
+                    }
+                  />
+                  <span>{feature.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="section">
+            <h3>Brand Role</h3>
+            <div className="form-grid">
+              <div className="field">
+                <label>Role name</label>
+                <input
+                  value={premium.brandRoleName}
+                  onChange={(event) => setPremium({ ...premium, brandRoleName: event.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Role color</label>
+                <input
+                  value={premium.brandRoleColor}
+                  onChange={(event) => setPremium({ ...premium, brandRoleColor: event.target.value })}
+                />
+              </div>
+            </div>
+            <div className="checkbox-grid" style={{ marginTop: 14 }}>
+              <label className="checkbox-card">
+                <input
+                  checked={premium.brandRoleHoist}
+                  type="checkbox"
+                  onChange={() => setPremium({ ...premium, brandRoleHoist: !premium.brandRoleHoist })}
+                />
+                <span>Hoist role</span>
+              </label>
+              <label className="checkbox-card">
+                <input
+                  checked={premium.brandRoleMentionable}
+                  type="checkbox"
+                  onChange={() => setPremium({ ...premium, brandRoleMentionable: !premium.brandRoleMentionable })}
+                />
+                <span>Mentionable</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="section">
+            <h3>Server Panel Customization</h3>
+            <div className="form-grid">
+              <div className="field">
+                <label>Title</label>
+                <input
+                  value={premium.serverPanelTitle}
+                  onChange={(event) => setPremium({ ...premium, serverPanelTitle: event.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Footer</label>
+                <input
+                  value={premium.serverPanelFooter}
+                  onChange={(event) => setPremium({ ...premium, serverPanelFooter: event.target.value })}
+                />
+              </div>
+            </div>
+            <div className="field">
+              <label>Description</label>
+              <textarea
+                value={premium.serverPanelDescription}
+                onChange={(event) => setPremium({ ...premium, serverPanelDescription: event.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="section">
+            <h3>Welcome / Leave Branding</h3>
+            <div className="form-grid">
+              <div className="field">
+                <label>Welcome channel</label>
+                <select
+                  value={premium.welcomeChannelId}
+                  onChange={(event) => setPremium({ ...premium, welcomeChannelId: event.target.value })}
+                >
+                  <option value="">Not set</option>
+                  {data.channels.map((channel) => (
+                    <option key={`welcome-${channel.channel_id}`} value={channel.channel_id}>
+                      {channel.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>Leave channel</label>
+                <select
+                  value={premium.leaveChannelId}
+                  onChange={(event) => setPremium({ ...premium, leaveChannelId: event.target.value })}
+                >
+                  <option value="">Not set</option>
+                  {data.channels.map((channel) => (
+                    <option key={`leave-${channel.channel_id}`} value={channel.channel_id}>
+                      {channel.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="checkbox-grid" style={{ marginTop: 14 }}>
+              <label className="checkbox-card">
+                <input
+                  checked={premium.welcomeEnabled}
+                  type="checkbox"
+                  onChange={() => setPremium({ ...premium, welcomeEnabled: !premium.welcomeEnabled })}
+                />
+                <span>Enable welcome messages</span>
+              </label>
+              <label className="checkbox-card">
+                <input
+                  checked={premium.leaveEnabled}
+                  type="checkbox"
+                  onChange={() => setPremium({ ...premium, leaveEnabled: !premium.leaveEnabled })}
+                />
+                <span>Enable leave messages</span>
+              </label>
+              <label className="checkbox-card">
+                <input
+                  checked={premium.sendDm}
+                  type="checkbox"
+                  onChange={() => setPremium({ ...premium, sendDm: !premium.sendDm })}
+                />
+                <span>Send DM on welcome</span>
+              </label>
+            </div>
+            <div className="form-grid" style={{ marginTop: 14 }}>
+              <div className="field">
+                <label>Welcome title</label>
+                <input
+                  value={premium.welcomeTitle}
+                  onChange={(event) => setPremium({ ...premium, welcomeTitle: event.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Leave title</label>
+                <input
+                  value={premium.leaveTitle}
+                  onChange={(event) => setPremium({ ...premium, leaveTitle: event.target.value })}
+                />
+              </div>
+            </div>
+            <div className="form-grid">
+              <div className="field">
+                <label>Welcome message</label>
+                <textarea
+                  value={premium.welcomeMessage}
+                  onChange={(event) => setPremium({ ...premium, welcomeMessage: event.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Leave message</label>
+                <textarea
+                  value={premium.leaveMessage}
+                  onChange={(event) => setPremium({ ...premium, leaveMessage: event.target.value })}
+                />
+              </div>
+            </div>
+            <div className="field">
+              <label>Welcome DM message</label>
+              <textarea
+                value={premium.dmMessage}
+                onChange={(event) => setPremium({ ...premium, dmMessage: event.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="section">
+            <h3>Analytics Pro</h3>
+            <div className="grid-2">
+              <div className="panel-note">Всего событий: {data.premiumAnalytics.totalEvents}</div>
+              <div className="panel-note">Команд: {data.premiumAnalytics.commandCount}</div>
+              <div className="panel-note">Заходов участников: {data.premiumAnalytics.memberJoinCount}</div>
+              <div className="panel-note">Выходов участников: {data.premiumAnalytics.memberLeaveCount}</div>
+            </div>
+            <div className="grid-2" style={{ marginTop: 14 }}>
+              <div className="panel-note">
+                <strong>Top commands</strong>
+                <br />
+                {data.premiumAnalytics.topCommands.length > 0
+                  ? data.premiumAnalytics.topCommands.map((item) => `${item.command}: ${item.count}`).join(" | ")
+                  : "No data yet."}
+              </div>
+              <div className="panel-note">
+                <strong>Top event types</strong>
+                <br />
+                {data.premiumAnalytics.recentEventTypes.length > 0
+                  ? data.premiumAnalytics.recentEventTypes.map((item) => `${item.eventType}: ${item.count}`).join(" | ")
+                  : "No data yet."}
+              </div>
+            </div>
+          </div>
+
+          <button
+            className="primary-button"
+            onClick={() =>
+              save("premium", {
+                premiumActive: premium.premiumActive,
+                planName: premium.planName,
+                features: premium.features,
+                brandRole: {
+                  role_name: premium.brandRoleName,
+                  color: premium.brandRoleColor,
+                  hoist: premium.brandRoleHoist,
+                  mentionable: premium.brandRoleMentionable,
+                },
+                serverPanelSettings: {
+                  title: premium.serverPanelTitle,
+                  description: premium.serverPanelDescription,
+                  footer: premium.serverPanelFooter,
+                },
+                welcomeSettings: {
+                  welcome_enabled: premium.welcomeEnabled,
+                  welcome_channel_id: premium.welcomeChannelId || null,
+                  welcome_title: premium.welcomeTitle,
+                  welcome_message: premium.welcomeMessage,
+                  leave_enabled: premium.leaveEnabled,
+                  leave_channel_id: premium.leaveChannelId || null,
+                  leave_title: premium.leaveTitle,
+                  leave_message: premium.leaveMessage,
+                  send_dm: premium.sendDm,
+                  dm_message: premium.dmMessage,
+                },
+                analyticsSettings: {
+                  expose_dashboard: true,
+                },
+              })
+            }
+            type="button"
+          >
+            Save Premium
+          </button>
         </section>
       </div>
     </div>

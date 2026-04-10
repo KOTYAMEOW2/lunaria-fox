@@ -1,17 +1,59 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
-import { env } from "@/lib/env";
-import type { DiscordSession } from "@/lib/types";
+import {
+  buildDashboardLoginUrl,
+  buildDashboardLogoutUrl,
+  buildDashboardUrl,
+  isExternalDashboard,
+  publicEnv,
+} from "@/lib/public-env";
 
-export function SiteHeader({ session }: { session: DiscordSession | null }) {
+type SessionPreview = {
+  username: string;
+  globalName: string | null;
+  avatar: string | null;
+};
+
+export function SiteHeader() {
+  const [session, setSession] = useState<SessionPreview | null>(null);
+
+  useEffect(() => {
+    if (isExternalDashboard()) return;
+
+    let cancelled = false;
+
+    fetch("/api/auth/session", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return { session: null };
+        return (await response.json()) as { session: SessionPreview | null };
+      })
+      .then((payload) => {
+        if (!cancelled) {
+          setSession(payload.session ?? null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSession(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <header className="site-header">
       <div className="container site-header-row">
         <Link className="brand-lockup" href="/">
           <span className="brand-mark" />
           <span>
-            <span className="brand-title">{env.siteName}</span>
+            <span className="brand-title">{publicEnv.siteName}</span>
             <span className="brand-subtitle">Discord Bot Control Plane</span>
           </span>
         </Link>
@@ -29,28 +71,28 @@ export function SiteHeader({ session }: { session: DiscordSession | null }) {
           <Link className="nav-pill" href="/docs">
             Docs
           </Link>
-          <a className="secondary-button" href={env.inviteUrl} rel="noreferrer" target="_blank">
+          <a className="secondary-button" href={publicEnv.inviteUrl} rel="noreferrer" target="_blank">
             Invite Bot
           </a>
           {session ? (
             <>
-              <Link className="ghost-button" href="/dashboard">
+              <a className="ghost-button" href={buildDashboardUrl("/dashboard")}>
                 Dashboard
-              </Link>
+              </a>
               <span className="session-chip">
                 {session.avatar ? (
                   <Image alt={session.username} height={28} src={session.avatar} unoptimized width={28} />
                 ) : null}
                 <span>{session.globalName || session.username}</span>
               </span>
-              <Link className="ghost-button" href="/api/auth/logout">
+              <a className="ghost-button" href={buildDashboardLogoutUrl()}>
                 Logout
-              </Link>
+              </a>
             </>
           ) : (
-            <Link className="primary-button" href="/api/auth/discord/login">
+            <a className="primary-button" href={buildDashboardLoginUrl()}>
               Login with Discord
-            </Link>
+            </a>
           )}
         </nav>
       </div>

@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { featureCards, roadmapCards } from "@/lib/content";
-import { env } from "@/lib/env";
+import { buildDashboardUrl, publicEnv } from "@/lib/public-env";
 import { getPublicCommandDirectory } from "@/lib/data/dashboard-read";
 
 export default async function HomePage() {
@@ -20,10 +20,10 @@ export default async function HomePage() {
               дашборд по серверам, управление конфигами через Supabase и архитектуру под Cloudflare.
             </p>
             <div className="hero-actions">
-              <Link className="primary-button" href="/dashboard">
+              <a className="primary-button" href={buildDashboardUrl("/dashboard")}>
                 Open Dashboard
-              </Link>
-              <a className="secondary-button" href={env.inviteUrl} rel="noreferrer" target="_blank">
+              </a>
+              <a className="secondary-button" href={publicEnv.inviteUrl} rel="noreferrer" target="_blank">
                 Invite Lunaria Fox
               </a>
               <Link className="ghost-button" href="/commands">
@@ -42,7 +42,7 @@ export default async function HomePage() {
               </div>
               <div className="stat-card">
                 <strong>Cloudflare</strong>
-                <span>SSR и деплой через OpenNext Workers</span>
+                <span>Pages для публички, отдельный runtime для dashboard</span>
               </div>
             </div>
           </div>

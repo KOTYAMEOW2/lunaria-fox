@@ -2,6 +2,7 @@ import { getPremiumGuildSet } from "@/lib/env";
 import { canManageGuild, fetchDiscordGuilds } from "@/lib/auth/discord";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
+  BrandRoleRow,
   BotGuildRow,
   CommandGroupRow,
   CommandPermissionRow,
@@ -12,9 +13,11 @@ import type {
   GuildConfigRow,
   GuildDashboardData,
   GuildLogSettingRow,
+  GuildPremiumSettingsRow,
   GuildRoleRow,
   GuildRuleRow,
   ManagedGuild,
+  PremiumAnalyticsSummary,
   ServerCustomizationRow,
   ServerPanelRow,
   SmartFilterRow,
@@ -29,6 +32,47 @@ function sortByName<T extends { name: string | null }>(rows: T[]) {
   return [...rows].sort((left, right) =>
     String(left.name || "").localeCompare(String(right.name || ""), "ru"),
   );
+}
+
+function emptyPremiumAnalytics(): PremiumAnalyticsSummary {
+  return {
+    totalEvents: 0,
+    commandCount: 0,
+    memberJoinCount: 0,
+    memberLeaveCount: 0,
+    topCommands: [],
+    recentEventTypes: [],
+  };
+}
+
+function buildPremiumAnalytics(rows: Array<{ event_type: string | null; payload: { command_name?: string } | null }>) {
+  const eventCounts = new Map<string, number>();
+  const commandCounts = new Map<string, number>();
+
+  for (const row of rows) {
+    const eventType = String(row.event_type || "event");
+    eventCounts.set(eventType, (eventCounts.get(eventType) || 0) + 1);
+
+    if (eventType === "command") {
+      const command = String(row.payload?.command_name || "unknown");
+      commandCounts.set(command, (commandCounts.get(command) || 0) + 1);
+    }
+  }
+
+  return {
+    totalEvents: rows.length,
+    commandCount: eventCounts.get("command") || 0,
+    memberJoinCount: eventCounts.get("member_join") || 0,
+    memberLeaveCount: eventCounts.get("member_leave") || 0,
+    topCommands: [...commandCounts.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 6)
+      .map(([command, count]) => ({ command, count })),
+    recentEventTypes: [...eventCounts.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 6)
+      .map(([eventType, count]) => ({ eventType, count })),
+  } satisfies PremiumAnalyticsSummary;
 }
 
 export async function getManagedGuilds(session: DiscordSession | null): Promise<ManagedGuild[]> {
@@ -89,7 +133,7 @@ export async function getPublicCommandDirectory() {
 
 export async function getGuildDashboardData(guildId: string): Promise<GuildDashboardData> {
   const supabase = getSupabaseAdmin();
-  const premiumEnabled = getPremiumGuildSet().has(guildId);
+  const premiumFallback = getPremiumGuildSet().has(guildId);
 
   if (!supabase) {
     return {
@@ -97,6 +141,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
       config: null,
       customizations: null,
       serverPanel: null,
+      brandRole: null,
       roles: [],
       channels: [],
       commandsRegistry: [],
@@ -111,7 +156,9 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
       recentTickets: [],
       voicemasterConfig: null,
       voicemasterRooms: [],
-      premiumEnabled,
+      premiumSettings: null,
+      premiumAnalytics: emptyPremiumAnalytics(),
+      premiumEnabled: premiumFallback,
     };
   }
 
@@ -120,6 +167,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     config,
     customizations,
     serverPanel,
+    brandRole,
     roles,
     channels,
     commandsRegistry,
@@ -134,11 +182,14 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     recentTickets,
     voicemasterConfig,
     voicemasterRooms,
+    premiumSettings,
+    analyticsEvents,
   ] = await Promise.all([
     supabase.from("bot_guilds").select("*").eq("guild_id", guildId).maybeSingle(),
     supabase.from("guild_configs").select("*").eq("guild_id", guildId).maybeSingle(),
     supabase.from("server_customizations").select("*").eq("guild_id", guildId).maybeSingle(),
     supabase.from("server_panels").select("*").eq("guild_id", guildId).maybeSingle(),
+    supabase.from("brand_roles").select("*").eq("guild_id", guildId).maybeSingle(),
     supabase.from("guild_roles").select("*").eq("guild_id", guildId).order("position", { ascending: false }),
     supabase.from("guild_channels").select("*").eq("guild_id", guildId).order("position"),
     supabase.from("commands_registry").select("*").order("category").order("command_name"),
@@ -153,13 +204,27 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     supabase.from("tickets").select("*").eq("guild_id", guildId).order("updated_at", { ascending: false }).limit(8),
     supabase.from("voicemaster_configs").select("*").eq("guild_id", guildId).maybeSingle(),
     supabase.from("voicemaster_rooms").select("*").eq("guild_id", guildId).order("updated_at", { ascending: false }),
+    supabase.from("guild_premium_settings").select("*").eq("guild_id", guildId).maybeSingle(),
+    supabase
+      .from("bot_analytics")
+      .select("event_type, payload")
+      .eq("guild_id", guildId)
+      .order("created_at", { ascending: false })
+      .limit(500),
   ]);
+
+  const premiumSettingsRow =
+    premiumSettings.error || !premiumSettings.data
+      ? null
+      : (premiumSettings.data as GuildPremiumSettingsRow | null);
+  const premiumEnabled = premiumSettingsRow?.premium_active ?? premiumFallback;
 
   return {
     guild: (guild.data as BotGuildRow | null) || null,
     config: (config.data as GuildConfigRow | null) || null,
     customizations: (customizations.data as ServerCustomizationRow | null) || null,
     serverPanel: (serverPanel.data as ServerPanelRow | null) || null,
+    brandRole: (brandRole.data as BrandRoleRow | null) || null,
     roles: sortByName((roles.data || []) as GuildRoleRow[]),
     channels: sortByName((channels.data || []) as GuildChannelRow[]),
     commandsRegistry: (commandsRegistry.data || []) as CommandRegistryRow[],
@@ -174,6 +239,12 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     recentTickets: (recentTickets.data || []) as TicketRow[],
     voicemasterConfig: (voicemasterConfig.data as VoicemasterConfigRow | null) || null,
     voicemasterRooms: (voicemasterRooms.data || []) as VoicemasterRoomRow[],
+    premiumSettings: premiumSettingsRow,
+    premiumAnalytics: analyticsEvents.error
+      ? emptyPremiumAnalytics()
+      : buildPremiumAnalytics(
+          ((analyticsEvents.data || []) as Array<{ event_type: string | null; payload: { command_name?: string } | null }>),
+        ),
     premiumEnabled,
   };
 }

@@ -1,6 +1,7 @@
 const env = {
   siteName: process.env.NEXT_PUBLIC_SITE_NAME || "Lunaria Fox",
   siteUrl: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
+  dashboardUrl: process.env.NEXT_PUBLIC_DASHBOARD_URL || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
   supportUrl: process.env.NEXT_PUBLIC_SUPPORT_URL || "https://discord.gg",
   inviteUrl: process.env.NEXT_PUBLIC_DISCORD_INVITE_URL || "#",
   discordClientId: process.env.DISCORD_CLIENT_ID || "",
@@ -10,8 +11,6 @@ const env = {
   supabaseUrl: process.env.SUPABASE_URL || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   premiumGuilds: process.env.PREMIUM_GUILDS || "",
-  botApiBaseUrl: process.env.BOT_API_BASE_URL || "",
-  botApiToken: process.env.BOT_API_TOKEN || "",
 };
 
 export function isDiscordConfigured() {

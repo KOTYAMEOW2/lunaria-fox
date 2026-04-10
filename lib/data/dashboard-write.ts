@@ -170,7 +170,7 @@ export async function saveCommandSettings(
     command_name: item.command_name,
     enabled: item.enabled,
     cooldown: item.cooldown,
-    mode: item.mode,
+    mode: item.mode === "allowlist" ? "allowlist" : "inherit",
     updated_at: now,
   }));
 
@@ -203,6 +203,59 @@ export async function saveCommandSettings(
     const { error } = await supabase.from("custom_commands").insert(customCommandRows);
     if (error) throw error;
   }
+}
+
+export async function savePremiumSettings(
+  guildId: string,
+  payload: {
+    premiumActive: boolean;
+    planName: string;
+    features: string[];
+    brandRole: {
+      role_name: string;
+      color: string;
+      hoist: boolean;
+      mentionable: boolean;
+    };
+    serverPanelSettings: Record<string, unknown>;
+    welcomeSettings: Record<string, unknown>;
+    analyticsSettings: Record<string, unknown>;
+  },
+) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) throw new Error("Supabase is not configured.");
+
+  const now = new Date().toISOString();
+
+  const [{ error: premiumError }, { error: brandRoleError }] = await Promise.all([
+    supabase.from("guild_premium_settings").upsert(
+      {
+        guild_id: guildId,
+        premium_active: payload.premiumActive,
+        plan_name: payload.planName || "premium",
+        features: uniqueStrings(payload.features),
+        server_panel_settings: payload.serverPanelSettings,
+        welcome_settings: payload.welcomeSettings,
+        analytics_settings: payload.analyticsSettings,
+        updated_at: now,
+      },
+      { onConflict: "guild_id" },
+    ),
+    supabase.from("brand_roles").upsert(
+      {
+        guild_id: guildId,
+        role_name: payload.brandRole.role_name,
+        color: payload.brandRole.color,
+        hoist: payload.brandRole.hoist,
+        mentionable: payload.brandRole.mentionable,
+        updated_at: now,
+      },
+      { onConflict: "guild_id" },
+    ),
+  ]);
+
+  if (premiumError) throw premiumError;
+  if (brandRoleError) throw brandRoleError;
 }
 
 export async function saveTicketSettings(
