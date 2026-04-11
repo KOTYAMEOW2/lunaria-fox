@@ -1348,6 +1348,7 @@ button {
 }
 
 .premium-fieldset[disabled] .field,
+.premium-fieldset[disabled] .module-toggle-card,
 .premium-fieldset[disabled] .checkbox-card,
 .premium-fieldset[disabled] .panel-note {
   pointer-events: none;

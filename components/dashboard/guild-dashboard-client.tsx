@@ -22,6 +22,9 @@ type DashboardSectionId =
 
 type CommandSubsectionId = "registry" | "groups" | "access" | "custom";
 type OverviewModuleKey = "moderation" | "lunarialog" | "tickets" | "voicemaster" | "serverpanel";
+type VoiceToggleKey = "allowOwnerRename" | "allowOwnerLimit" | "allowOwnerLock" | "allowOwnerHide";
+type PremiumBrandToggleKey = "brandRoleHoist" | "brandRoleMentionable";
+type PremiumWelcomeToggleKey = "welcomeEnabled" | "leaveEnabled" | "sendDm";
 
 const dashboardSections: Array<{ id: DashboardSectionId; label: string }> = [
   { id: "overview", label: "Overview" },
@@ -77,6 +80,72 @@ const overviewModuleCards: Array<{
     key: "serverpanel",
     title: "Server Panel",
     description: "Системная панель сервера и публичные служебные блоки.",
+  },
+] as const;
+
+const voiceToggleCards: Array<{
+  key: VoiceToggleKey;
+  title: string;
+  description: string;
+}> = [
+  {
+    key: "allowOwnerRename",
+    title: "Owner Rename",
+    description: "Создатель комнаты может менять название временного канала.",
+  },
+  {
+    key: "allowOwnerLimit",
+    title: "Owner Limit",
+    description: "Создатель может менять лимит пользователей в своей комнате.",
+  },
+  {
+    key: "allowOwnerLock",
+    title: "Owner Lock",
+    description: "Создатель может закрывать комнату от новых участников.",
+  },
+  {
+    key: "allowOwnerHide",
+    title: "Owner Hide",
+    description: "Создатель может скрывать комнату. Обычно это premium-режим.",
+  },
+] as const;
+
+const premiumBrandToggleCards: Array<{
+  key: PremiumBrandToggleKey;
+  title: string;
+  description: string;
+}> = [
+  {
+    key: "brandRoleHoist",
+    title: "Hoist Role",
+    description: "Выносить brand role в отдельный блок списка ролей.",
+  },
+  {
+    key: "brandRoleMentionable",
+    title: "Mentionable",
+    description: "Разрешить участникам пинговать фирменную роль сервера.",
+  },
+] as const;
+
+const premiumWelcomeToggleCards: Array<{
+  key: PremiumWelcomeToggleKey;
+  title: string;
+  description: string;
+}> = [
+  {
+    key: "welcomeEnabled",
+    title: "Welcome Messages",
+    description: "Включить брендированные сообщения о входе участников.",
+  },
+  {
+    key: "leaveEnabled",
+    title: "Leave Messages",
+    description: "Включить брендированные сообщения об уходе участников.",
+  },
+  {
+    key: "sendDm",
+    title: "Welcome DM",
+    description: "Отправлять личное сообщение новому участнику при входе.",
   },
 ] as const;
 
@@ -1681,7 +1750,7 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           <div className="dashboard-head">
             <div>
               <span className="eyebrow">VoiceMaster</span>
-              <h2>Голосовые хабы и premium-gated поведение</h2>
+              <h2>Голосовые хабы и управление комнатами</h2>
             </div>
             <span className="badge muted">{status.voice || "Editing locally"}</span>
           </div>
@@ -1743,23 +1812,24 @@ export function GuildDashboardClient({ guildId, data }: Props) {
             </div>
           </div>
 
-          <div className="checkbox-grid" style={{ marginTop: 18 }}>
-            {(
-              [
-                ["allowOwnerRename", "Owner can rename"],
-                ["allowOwnerLimit", "Owner can set limit"],
-                ["allowOwnerLock", "Owner can lock"],
-                ["allowOwnerHide", "Owner can hide (premium-related)"],
-              ] as const
-            ).map(([key, label]) => (
-              <label className="checkbox-card" key={key}>
-                <input
-                  checked={voice[key]}
-                  type="checkbox"
-                  onChange={() => setVoice({ ...voice, [key]: !voice[key] })}
-                />
-                <span>{label}</span>
-              </label>
+          <div className="module-card-grid" style={{ marginTop: 18 }}>
+            {voiceToggleCards.map((item) => (
+              <button
+                aria-pressed={voice[item.key]}
+                className={`module-toggle-card ${voice[item.key] ? "module-toggle-card-active" : ""}`}
+                key={item.key}
+                onClick={() => setVoice({ ...voice, [item.key]: !voice[item.key] })}
+                type="button"
+              >
+                <div className="module-toggle-top">
+                  <span className="module-toggle-state">{voice[item.key] ? "Enabled" : "Disabled"}</span>
+                  <span className={`module-toggle-knob ${voice[item.key] ? "module-toggle-knob-active" : ""}`}>
+                    <span />
+                  </span>
+                </div>
+                <strong>{item.title}</strong>
+                <p>{item.description}</p>
+              </button>
             ))}
           </div>
 
@@ -1985,23 +2055,25 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                 />
               </div>
             </div>
-            <div className="checkbox-grid" style={{ marginTop: 14 }}>
-              <label className="checkbox-card">
-                <input
-                  checked={premium.brandRoleHoist}
-                  type="checkbox"
-                  onChange={() => setPremium({ ...premium, brandRoleHoist: !premium.brandRoleHoist })}
-                />
-                <span>Hoist role</span>
-              </label>
-              <label className="checkbox-card">
-                <input
-                  checked={premium.brandRoleMentionable}
-                  type="checkbox"
-                  onChange={() => setPremium({ ...premium, brandRoleMentionable: !premium.brandRoleMentionable })}
-                />
-                <span>Mentionable</span>
-              </label>
+            <div className="module-card-grid" style={{ marginTop: 14 }}>
+              {premiumBrandToggleCards.map((item) => (
+                <button
+                  aria-pressed={premium[item.key]}
+                  className={`module-toggle-card ${premium[item.key] ? "module-toggle-card-active" : ""}`}
+                  key={item.key}
+                  onClick={() => setPremium({ ...premium, [item.key]: !premium[item.key] })}
+                  type="button"
+                >
+                  <div className="module-toggle-top">
+                    <span className="module-toggle-state">{premium[item.key] ? "Enabled" : "Disabled"}</span>
+                    <span className={`module-toggle-knob ${premium[item.key] ? "module-toggle-knob-active" : ""}`}>
+                      <span />
+                    </span>
+                  </div>
+                  <strong>{item.title}</strong>
+                  <p>{item.description}</p>
+                </button>
+              ))}
             </div>
           </div>
 
@@ -2064,31 +2136,25 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                 </select>
               </div>
             </div>
-            <div className="checkbox-grid" style={{ marginTop: 14 }}>
-              <label className="checkbox-card">
-                <input
-                  checked={premium.welcomeEnabled}
-                  type="checkbox"
-                  onChange={() => setPremium({ ...premium, welcomeEnabled: !premium.welcomeEnabled })}
-                />
-                <span>Enable welcome messages</span>
-              </label>
-              <label className="checkbox-card">
-                <input
-                  checked={premium.leaveEnabled}
-                  type="checkbox"
-                  onChange={() => setPremium({ ...premium, leaveEnabled: !premium.leaveEnabled })}
-                />
-                <span>Enable leave messages</span>
-              </label>
-              <label className="checkbox-card">
-                <input
-                  checked={premium.sendDm}
-                  type="checkbox"
-                  onChange={() => setPremium({ ...premium, sendDm: !premium.sendDm })}
-                />
-                <span>Send DM on welcome</span>
-              </label>
+            <div className="module-card-grid premium-module-grid" style={{ marginTop: 14 }}>
+              {premiumWelcomeToggleCards.map((item) => (
+                <button
+                  aria-pressed={premium[item.key]}
+                  className={`module-toggle-card ${premium[item.key] ? "module-toggle-card-active" : ""}`}
+                  key={item.key}
+                  onClick={() => setPremium({ ...premium, [item.key]: !premium[item.key] })}
+                  type="button"
+                >
+                  <div className="module-toggle-top">
+                    <span className="module-toggle-state">{premium[item.key] ? "Enabled" : "Disabled"}</span>
+                    <span className={`module-toggle-knob ${premium[item.key] ? "module-toggle-knob-active" : ""}`}>
+                      <span />
+                    </span>
+                  </div>
+                  <strong>{item.title}</strong>
+                  <p>{item.description}</p>
+                </button>
+              ))}
             </div>
             <div className="form-grid" style={{ marginTop: 14 }}>
               <div className="field">
