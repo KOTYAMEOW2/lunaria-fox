@@ -16,6 +16,7 @@ type SessionPreview = {
   username: string;
   globalName: string | null;
   avatar: string | null;
+  isOwner?: boolean;
 };
 
 export function SiteHeader() {
@@ -79,6 +80,11 @@ export function SiteHeader() {
               <a className="ghost-button" href={buildDashboardUrl("/dashboard")}>
                 Dashboard
               </a>
+              {session.isOwner ? (
+                <a className="ghost-button" href={buildDashboardUrl("/admin")}>
+                  Admin
+                </a>
+              ) : null}
               <span className="session-chip">
                 {session.avatar ? (
                   <Image alt={session.username} height={28} src={session.avatar} unoptimized width={28} />

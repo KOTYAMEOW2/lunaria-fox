@@ -910,6 +910,19 @@ button {
   gap: 10px;
 }
 
+.admin-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+@media (max-width: 780px) {
+  .admin-meta-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .command-filter-cluster span {
   align-self: center;
 }

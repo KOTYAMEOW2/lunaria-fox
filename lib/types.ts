@@ -31,6 +31,25 @@ export type ManagedGuild = DiscordGuild & {
   ownerId: string | null;
 };
 
+export type AdminManagedGuild = {
+  id: string;
+  name: string;
+  icon: string | null;
+  ownerId: string | null;
+  memberCount: number;
+  preferredLocale: string;
+  isAvailable: boolean;
+  premiumActive: boolean;
+  premiumPlan: string | null;
+  syncRevision: number;
+  appliedRevision: number;
+  syncStatus: string | null;
+  syncError: string | null;
+  botSeenAt: string | null;
+  botAppliedAt: string | null;
+  updatedAt: string | null;
+};
+
 export type BotGuildRow = {
   guild_id: string;
   name: string | null;

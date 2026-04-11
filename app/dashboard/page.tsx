@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { isOwnerSession } from "@/lib/auth/owners";
 import { getSession } from "@/lib/auth/session";
 import { getManagedGuilds } from "@/lib/data/dashboard-read";
 
@@ -56,6 +57,7 @@ export default async function DashboardPage({
   }
 
   const guilds = await getManagedGuilds(session);
+  const owner = isOwnerSession(session);
 
   return (
     <section className="page-shell">
@@ -65,6 +67,13 @@ export default async function DashboardPage({
           <h1>Выбери сервер для управления</h1>
           <p>Здесь показаны серверы, где у тебя есть право управления и где можно открыть панель Lunaria Fox.</p>
           {authMessage ? <p className="page-alert">{authMessage}</p> : null}
+          {owner ? (
+            <div className="stack-actions" style={{ marginTop: 16 }}>
+              <Link className="primary-button" href="/admin">
+                Open Admin Panel
+              </Link>
+            </div>
+          ) : null}
         </div>
 
         <div className="guild-grid">

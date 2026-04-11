@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
   BotAnalyticsEventRow,
   BrandRoleRow,
+  AdminManagedGuild,
   BotGuildRow,
   CommandGroupRow,
   CommandPermissionRow,
@@ -117,6 +118,60 @@ export async function getManagedGuilds(session: DiscordSession | null): Promise<
       ownerId: tracked?.owner_id || null,
     };
   });
+}
+
+export async function getAdminManagedGuilds(): Promise<AdminManagedGuild[]> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return [];
+
+  const [guildsResult, premiumResult, syncResult] = await Promise.all([
+    supabase
+      .from("bot_guilds")
+      .select("guild_id, name, icon, owner_id, member_count, preferred_locale, is_available, updated_at")
+      .order("name"),
+    supabase
+      .from("guild_premium_settings")
+      .select("guild_id, premium_active, plan_name"),
+    supabase
+      .from("dashboard_sync_states")
+      .select("guild_id, revision, bot_applied_revision, status, last_error, bot_seen_at, bot_applied_at"),
+  ]);
+
+  const premiumByGuild = new Map(
+    ((premiumResult.data || []) as Array<{ guild_id: string; premium_active: boolean | null; plan_name: string | null }>).map((row) => [
+      row.guild_id,
+      row,
+    ]),
+  );
+  const syncByGuild = new Map(
+    ((syncResult.data || []) as DashboardSyncStateRow[]).map((row) => [row.guild_id, row]),
+  );
+
+  return ((guildsResult.data || []) as BotGuildRow[])
+    .map((guild) => {
+      const premium = premiumByGuild.get(guild.guild_id);
+      const sync = syncByGuild.get(guild.guild_id);
+
+      return {
+        id: guild.guild_id,
+        name: guild.name || guild.guild_id,
+        icon: guild.icon || null,
+        ownerId: guild.owner_id || null,
+        memberCount: guild.member_count || 0,
+        preferredLocale: guild.preferred_locale || "ru",
+        isAvailable: guild.is_available !== false,
+        premiumActive: premium?.premium_active === true,
+        premiumPlan: premium?.plan_name || null,
+        syncRevision: Number(sync?.revision || 0),
+        appliedRevision: Number(sync?.bot_applied_revision || 0),
+        syncStatus: sync?.status || null,
+        syncError: sync?.last_error || null,
+        botSeenAt: sync?.bot_seen_at || null,
+        botAppliedAt: sync?.bot_applied_at || null,
+        updatedAt: guild.updated_at || null,
+      } satisfies AdminManagedGuild;
+    })
+    .sort((left, right) => left.name.localeCompare(right.name, "ru"));
 }
 
 export async function getPublicCommandDirectory() {
