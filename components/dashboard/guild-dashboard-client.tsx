@@ -1,7 +1,8 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 
+import { TagSelector, type TagSelectorOption } from "@/components/dashboard/tag-selector";
 import type { DashboardSyncStateRow, GuildDashboardData } from "@/lib/types";
 import { formatDate, safeJsonParse } from "@/lib/utils";
 
@@ -9,6 +10,25 @@ type Props = {
   guildId: string;
   data: GuildDashboardData;
 };
+
+type DashboardSectionId =
+  | "overview"
+  | "commands"
+  | "moderation"
+  | "tickets"
+  | "voice"
+  | "branding"
+  | "premium";
+
+const dashboardSections: Array<{ id: DashboardSectionId; label: string }> = [
+  { id: "overview", label: "Overview" },
+  { id: "commands", label: "Commands" },
+  { id: "moderation", label: "Moderation" },
+  { id: "tickets", label: "Tickets" },
+  { id: "voice", label: "VoiceMaster" },
+  { id: "branding", label: "Branding" },
+  { id: "premium", label: "Premium" },
+];
 
 const premiumFeatureOptions = [
   { key: "branding", label: "Premium Branding" },
@@ -46,6 +66,7 @@ function summarizeSyncState(syncState: DashboardSyncStateRow | null) {
 export function GuildDashboardClient({ guildId, data }: Props) {
   const [status, setStatus] = useState<Record<string, string>>({});
   const [syncState, setSyncState] = useState<DashboardSyncStateRow | null>(data.syncState);
+  const [activeSection, setActiveSection] = useState<DashboardSectionId>("overview");
 
   const [overview, setOverview] = useState({
     prefix: data.config?.prefix || ".",
@@ -228,6 +249,38 @@ export function GuildDashboardClient({ guildId, data }: Props) {
       (data.premiumSettings?.welcome_settings as { dm_message?: string } | null)?.dm_message || "",
   });
 
+  const roleOptions = useMemo<TagSelectorOption[]>(
+    () =>
+      data.roles.map((role) => ({
+        value: role.role_id,
+        label: role.name,
+        hint: role.role_id,
+      })),
+    [data.roles],
+  );
+
+  const channelOptions = useMemo<TagSelectorOption[]>(
+    () =>
+      data.channels.map((channel) => ({
+        value: channel.channel_id,
+        label: `# ${channel.name}`,
+        hint: channel.channel_id,
+      })),
+    [data.channels],
+  );
+
+  const groupOptions = useMemo<TagSelectorOption[]>(
+    () =>
+      commandGroups
+        .filter((group) => group.group_id.trim())
+        .map((group) => ({
+          value: group.group_id.trim().toLowerCase(),
+          label: group.name.trim() || group.group_id.trim().toLowerCase(),
+          hint: group.group_id.trim().toLowerCase(),
+        })),
+    [commandGroups],
+  );
+
   useEffect(() => {
     let disposed = false;
 
@@ -297,6 +350,26 @@ export function GuildDashboardClient({ guildId, data }: Props) {
     });
   }
 
+  function updateCommandPermissionCsv(
+    index: number,
+    key:
+      | "allow_roles"
+      | "deny_roles"
+      | "allow_channels"
+      | "deny_channels"
+      | "allow_groups"
+      | "deny_groups"
+      | "allow_users"
+      | "deny_users",
+    next: string[],
+  ) {
+    setCommandPermissions((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: next.join(", ") } : item,
+      ),
+    );
+  }
+
   return (
     <div className="dashboard-grid">
       <aside className="dashboard-sidebar panel">
@@ -309,13 +382,16 @@ export function GuildDashboardClient({ guildId, data }: Props) {
         </div>
         <span className="eyebrow">Sections</span>
         <div className="sidebar-links">
-          <a href="#overview">Overview</a>
-          <a href="#commands">Commands</a>
-          <a href="#moderation">Moderation</a>
-          <a href="#tickets">Tickets</a>
-          <a href="#voice">VoiceMaster</a>
-          <a href="#branding">Branding</a>
-          <a href="#premium">Premium</a>
+          {dashboardSections.map((section) => (
+            <button
+              className={activeSection === section.id ? "sidebar-link-active" : ""}
+              key={section.id}
+              onClick={() => setActiveSection(section.id)}
+              type="button"
+            >
+              {section.label}
+            </button>
+          ))}
         </div>
       </aside>
 
@@ -358,7 +434,10 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           </div>
         </section>
 
-        <section className="dashboard-section panel" id="overview">
+        <section
+          className={`dashboard-section panel ${activeSection === "overview" ? "" : "dashboard-section-hidden"}`}
+          id="overview"
+        >
           <div className="dashboard-head">
             <div>
               <span className="eyebrow">Overview</span>
@@ -430,36 +509,26 @@ export function GuildDashboardClient({ guildId, data }: Props) {
 
           <div className="section">
             <h3>Moderator Roles</h3>
-            <div className="chip-row">
-              {data.roles.map((role) => (
-                <label className="badge" key={`mod-${role.role_id}`}>
-                  <input
-                    checked={overview.modRoles.includes(role.role_id)}
-                    type="checkbox"
-                    onChange={() => setOverview({ ...overview, modRoles: toggleValue(overview.modRoles, role.role_id) })}
-                  />
-                  {role.name}
-                </label>
-              ))}
-            </div>
+            <TagSelector
+              emptyText="Роли не найдены."
+              onChange={(next) => setOverview({ ...overview, modRoles: next })}
+              options={roleOptions}
+              placeholder="Выбери роли модераторов"
+              searchPlaceholder="Найти роль"
+              selected={overview.modRoles}
+            />
           </div>
 
           <div className="section">
             <h3>Admin Roles</h3>
-            <div className="chip-row">
-              {data.roles.map((role) => (
-                <label className="badge" key={`admin-${role.role_id}`}>
-                  <input
-                    checked={overview.adminRoles.includes(role.role_id)}
-                    type="checkbox"
-                    onChange={() =>
-                      setOverview({ ...overview, adminRoles: toggleValue(overview.adminRoles, role.role_id) })
-                    }
-                  />
-                  {role.name}
-                </label>
-              ))}
-            </div>
+            <TagSelector
+              emptyText="Роли не найдены."
+              onChange={(next) => setOverview({ ...overview, adminRoles: next })}
+              options={roleOptions}
+              placeholder="Выбери роли администраторов"
+              searchPlaceholder="Найти роль"
+              selected={overview.adminRoles}
+            />
           </div>
 
           <button
@@ -476,7 +545,10 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           </button>
         </section>
 
-        <section className="dashboard-section panel" id="commands">
+        <section
+          className={`dashboard-section panel ${activeSection === "commands" ? "" : "dashboard-section-hidden"}`}
+          id="commands"
+        >
           <div className="dashboard-head">
             <div>
               <span className="eyebrow">Commands</span>
@@ -601,16 +673,20 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                         />
                       </div>
                       <div className="field">
-                        <label>Roles (IDs)</label>
-                        <input
-                          value={group.roles}
-                          onChange={(event) =>
+                        <label>Roles</label>
+                        <TagSelector
+                          emptyText="Роли не найдены."
+                          onChange={(next) =>
                             setCommandGroups((current) =>
                               current.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, roles: event.target.value } : item,
+                                itemIndex === index ? { ...item, roles: next.join(", ") } : item,
                               ),
                             )
                           }
+                          options={roleOptions}
+                          placeholder="Выбери роли группы"
+                          searchPlaceholder="Найти роль"
+                          selected={parseCsv(group.roles)}
                         />
                       </div>
                       <div className="field">
@@ -674,80 +750,68 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                   <div className="form-grid" style={{ marginTop: 12 }}>
                     <div className="field">
                       <label>Allow roles</label>
-                      <input
-                        value={permission.allow_roles}
-                        onChange={(event) =>
-                          setCommandPermissions((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, allow_roles: event.target.value } : item,
-                            ),
-                          )
-                        }
+                      <TagSelector
+                        emptyText="Роли не найдены."
+                        onChange={(next) => updateCommandPermissionCsv(index, "allow_roles", next)}
+                        options={roleOptions}
+                        placeholder="Разрешить роли"
+                        searchPlaceholder="Найти роль"
+                        selected={parseCsv(permission.allow_roles)}
                       />
                     </div>
                     <div className="field">
                       <label>Deny roles</label>
-                      <input
-                        value={permission.deny_roles}
-                        onChange={(event) =>
-                          setCommandPermissions((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, deny_roles: event.target.value } : item,
-                            ),
-                          )
-                        }
+                      <TagSelector
+                        emptyText="Роли не найдены."
+                        onChange={(next) => updateCommandPermissionCsv(index, "deny_roles", next)}
+                        options={roleOptions}
+                        placeholder="Запретить роли"
+                        searchPlaceholder="Найти роль"
+                        selected={parseCsv(permission.deny_roles)}
                       />
                     </div>
                     <div className="field">
                       <label>Allow channels</label>
-                      <input
-                        value={permission.allow_channels}
-                        onChange={(event) =>
-                          setCommandPermissions((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, allow_channels: event.target.value } : item,
-                            ),
-                          )
-                        }
+                      <TagSelector
+                        emptyText="Каналы не найдены."
+                        onChange={(next) => updateCommandPermissionCsv(index, "allow_channels", next)}
+                        options={channelOptions}
+                        placeholder="Разрешить каналы"
+                        searchPlaceholder="Найти канал"
+                        selected={parseCsv(permission.allow_channels)}
                       />
                     </div>
                     <div className="field">
                       <label>Deny channels</label>
-                      <input
-                        value={permission.deny_channels}
-                        onChange={(event) =>
-                          setCommandPermissions((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, deny_channels: event.target.value } : item,
-                            ),
-                          )
-                        }
+                      <TagSelector
+                        emptyText="Каналы не найдены."
+                        onChange={(next) => updateCommandPermissionCsv(index, "deny_channels", next)}
+                        options={channelOptions}
+                        placeholder="Запретить каналы"
+                        searchPlaceholder="Найти канал"
+                        selected={parseCsv(permission.deny_channels)}
                       />
                     </div>
                     <div className="field">
                       <label>Allow groups</label>
-                      <input
-                        value={permission.allow_groups}
-                        onChange={(event) =>
-                          setCommandPermissions((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, allow_groups: event.target.value } : item,
-                            ),
-                          )
-                        }
+                      <TagSelector
+                        emptyText="Сначала создай группу команд."
+                        onChange={(next) => updateCommandPermissionCsv(index, "allow_groups", next)}
+                        options={groupOptions}
+                        placeholder="Разрешить группы"
+                        searchPlaceholder="Найти группу"
+                        selected={parseCsv(permission.allow_groups)}
                       />
                     </div>
                     <div className="field">
                       <label>Deny groups</label>
-                      <input
-                        value={permission.deny_groups}
-                        onChange={(event) =>
-                          setCommandPermissions((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, deny_groups: event.target.value } : item,
-                            ),
-                          )
-                        }
+                      <TagSelector
+                        emptyText="Сначала создай группу команд."
+                        onChange={(next) => updateCommandPermissionCsv(index, "deny_groups", next)}
+                        options={groupOptions}
+                        placeholder="Запретить группы"
+                        searchPlaceholder="Найти группу"
+                        selected={parseCsv(permission.deny_groups)}
                       />
                     </div>
                     <div className="field">
@@ -916,7 +980,10 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           </button>
         </section>
 
-        <section className="dashboard-section panel" id="moderation">
+        <section
+          className={`dashboard-section panel ${activeSection === "moderation" ? "" : "dashboard-section-hidden"}`}
+          id="moderation"
+        >
           <div className="dashboard-head">
             <div>
               <span className="eyebrow">Moderation</span>
@@ -1078,7 +1145,10 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           </button>
         </section>
 
-        <section className="dashboard-section panel" id="tickets">
+        <section
+          className={`dashboard-section panel ${activeSection === "tickets" ? "" : "dashboard-section-hidden"}`}
+          id="tickets"
+        >
           <div className="dashboard-head">
             <div>
               <span className="eyebrow">Tickets</span>
@@ -1137,18 +1207,14 @@ export function GuildDashboardClient({ guildId, data }: Props) {
 
           <div className="section">
             <h3>Support roles</h3>
-            <div className="chip-row">
-              {data.roles.map((role) => (
-                <label className="badge" key={`ticket-role-${role.role_id}`}>
-                  <input
-                    checked={tickets.supportRoles.includes(role.role_id)}
-                    type="checkbox"
-                    onChange={() => setTickets({ ...tickets, supportRoles: toggleValue(tickets.supportRoles, role.role_id) })}
-                  />
-                  {role.name}
-                </label>
-              ))}
-            </div>
+            <TagSelector
+              emptyText="Роли не найдены."
+              onChange={(next) => setTickets({ ...tickets, supportRoles: next })}
+              options={roleOptions}
+              placeholder="Выбери роли поддержки"
+              searchPlaceholder="Найти роль"
+              selected={tickets.supportRoles}
+            />
           </div>
 
           <div className="section">
@@ -1317,7 +1383,10 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           </div>
         </section>
 
-        <section className="dashboard-section panel" id="voice">
+        <section
+          className={`dashboard-section panel ${activeSection === "voice" ? "" : "dashboard-section-hidden"}`}
+          id="voice"
+        >
           <div className="dashboard-head">
             <div>
               <span className="eyebrow">VoiceMaster</span>
@@ -1455,7 +1524,10 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           </div>
         </section>
 
-        <section className="dashboard-section panel" id="branding">
+        <section
+          className={`dashboard-section panel ${activeSection === "branding" ? "" : "dashboard-section-hidden"}`}
+          id="branding"
+        >
           <div className="dashboard-head">
             <div>
               <span className="eyebrow">Branding</span>
@@ -1532,7 +1604,10 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           </button>
         </section>
 
-        <section className="dashboard-section panel" id="premium">
+        <section
+          className={`dashboard-section panel ${activeSection === "premium" ? "" : "dashboard-section-hidden"}`}
+          id="premium"
+        >
           <div className="dashboard-head">
             <div>
               <span className="eyebrow">Premium</span>

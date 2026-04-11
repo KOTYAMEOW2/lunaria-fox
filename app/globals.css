@@ -569,6 +569,9 @@ button {
   position: sticky;
   top: 100px;
   padding: 18px;
+  background:
+    linear-gradient(180deg, rgba(17, 12, 32, 0.98), rgba(10, 8, 18, 0.94)),
+    radial-gradient(circle at top, rgba(167, 124, 255, 0.12), transparent 28%);
 }
 
 .sync-orb {
@@ -624,17 +627,31 @@ button {
   margin-top: 16px;
 }
 
-.sidebar-links a {
+.sidebar-links a,
+.sidebar-links button {
   padding: 12px 14px;
   border-radius: 14px;
   color: var(--text-muted);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid transparent;
+  text-align: left;
+  appearance: none;
+  width: 100%;
 }
 
-.sidebar-links a:hover {
+.sidebar-links a:hover,
+.sidebar-links button:hover {
   border-color: var(--border);
   color: var(--text);
+}
+
+.sidebar-links .sidebar-link-active {
+  color: var(--text);
+  border-color: rgba(167, 124, 255, 0.34);
+  background:
+    linear-gradient(135deg, rgba(167, 124, 255, 0.16), rgba(255, 255, 255, 0.04)),
+    rgba(255, 255, 255, 0.03);
+  box-shadow: 0 12px 26px rgba(12, 9, 23, 0.28);
 }
 
 .dashboard-sections {
@@ -644,6 +661,13 @@ button {
 
 .dashboard-section {
   padding: 22px;
+  background:
+    linear-gradient(180deg, rgba(18, 13, 33, 0.97), rgba(10, 8, 18, 0.94)),
+    radial-gradient(circle at top right, rgba(120, 210, 255, 0.06), transparent 24%);
+}
+
+.dashboard-section-hidden {
+  display: none;
 }
 
 .control-plane-panel {
@@ -734,6 +758,127 @@ button {
   resize: vertical;
 }
 
+.tag-selector {
+  display: grid;
+  gap: 10px;
+}
+
+.tag-selector-trigger {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(209, 188, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(12, 9, 23, 0.94), rgba(8, 6, 15, 0.98)),
+    rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  transition:
+    border-color 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.tag-selector-trigger:hover {
+  border-color: rgba(167, 124, 255, 0.34);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(8, 6, 15, 0.26);
+}
+
+.tag-selector-trigger strong {
+  color: var(--primary-strong);
+  font-weight: 600;
+}
+
+.tag-selector-picked {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(167, 124, 255, 0.2);
+  background: rgba(167, 124, 255, 0.12);
+  color: var(--text);
+}
+
+.tag-pill-remove {
+  color: var(--primary-strong);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.tag-selector-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(209, 188, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(15, 11, 28, 0.98), rgba(9, 7, 17, 0.98)),
+    rgba(255, 255, 255, 0.02);
+  box-shadow: 0 18px 36px rgba(5, 4, 10, 0.24);
+}
+
+.tag-selector-options {
+  display: grid;
+  gap: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.tag-selector-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(209, 188, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tag-selector-option input {
+  margin-top: 3px;
+}
+
+.tag-selector-option strong,
+.tag-selector-option span {
+  display: block;
+}
+
+.tag-selector-option strong {
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.tag-selector-option span {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  word-break: break-all;
+}
+
+.tag-selector-option-active {
+  border-color: rgba(167, 124, 255, 0.3);
+  background:
+    linear-gradient(135deg, rgba(167, 124, 255, 0.14), rgba(255, 255, 255, 0.03)),
+    rgba(255, 255, 255, 0.03);
+}
+
+.tag-selector-empty {
+  padding: 14px 4px 4px;
+  color: var(--text-soft);
+}
+
 .chip-row {
   display: flex;
   flex-wrap: wrap;
@@ -784,6 +929,7 @@ button {
   border: 1px solid rgba(120, 210, 255, 0.18);
   background: rgba(120, 210, 255, 0.06);
   color: var(--text-muted);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 @keyframes float-panel {
