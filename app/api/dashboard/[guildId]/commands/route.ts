@@ -39,6 +39,7 @@ const schema = z.object({
       response_mode: z.string(),
       response_text: z.string(),
       embed: z.record(z.string(), z.unknown()).nullable().optional(),
+      actions: z.array(z.record(z.string(), z.unknown())).optional(),
       aliases: z.array(z.string()),
       enabled: z.boolean(),
       cooldown: z.number(),

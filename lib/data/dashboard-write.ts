@@ -41,6 +41,7 @@ type CustomCommandPayload = {
   response_mode: string;
   response_text: string;
   embed?: Record<string, unknown> | null;
+  actions?: Array<Record<string, unknown>>;
   aliases: string[];
   enabled: boolean;
   cooldown: number;
@@ -375,6 +376,7 @@ export async function saveCommandSettings(
       response_mode: command.response_mode === "embed" ? "embed" : "text",
       response_text: command.response_text,
       embed: command.embed && typeof command.embed === "object" ? command.embed : {},
+      actions: Array.isArray(command.actions) ? command.actions : [],
       aliases: dedupeStrings(command.aliases),
       cooldown: command.cooldown,
       allowed_roles: dedupeStrings(command.allowed_roles),

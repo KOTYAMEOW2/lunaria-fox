@@ -26,11 +26,17 @@ type VoiceToggleKey = "allowOwnerRename" | "allowOwnerLimit" | "allowOwnerLock" 
 type PremiumBrandToggleKey = "brandRoleHoist" | "brandRoleMentionable";
 type PremiumWelcomeToggleKey = "welcomeEnabled" | "leaveEnabled" | "sendDm";
 type CustomCommandResponseMode = "text" | "embed";
+type CustomCommandActionMode = "reply" | "role_grant" | "role_remove" | "announce";
+type CustomCommandTargetMode = "self" | "target";
 
 type CustomCommandEditorState = {
   command_name: string;
   description: string;
   trigger_type: "prefix";
+  action_mode: CustomCommandActionMode;
+  action_target: CustomCommandTargetMode;
+  action_role_id: string;
+  action_channel_id: string;
   response_mode: CustomCommandResponseMode;
   response_text: string;
   embed_title: string;
@@ -45,6 +51,18 @@ type CustomCommandEditorState = {
   denied_channels: string[];
   ephemeral: boolean;
   delete_trigger: boolean;
+};
+
+type CustomCommandTemplate = {
+  key: string;
+  label: string;
+  description: string;
+  command_name: string;
+  aliases: string;
+  response_mode: CustomCommandResponseMode;
+  response_text: string;
+  embed_title?: string;
+  embed_description?: string;
 };
 
 const dashboardSections: Array<{ id: DashboardSectionId; label: string }> = [
@@ -170,6 +188,76 @@ const premiumWelcomeToggleCards: Array<{
   },
 ] as const;
 
+const customCommandTemplates: CustomCommandTemplate[] = [
+  {
+    key: "rules",
+    label: "Rules",
+    description: "Быстрая команда с правилами сервера.",
+    command_name: "rules",
+    aliases: "правила, rule",
+    response_mode: "embed",
+    response_text: "Прочитай правила сервера и следуй им.",
+    embed_title: "Правила {server}",
+    embed_description: "1. Уважай участников\n2. Не спамь\n3. Следуй указаниям администрации",
+  },
+  {
+    key: "faq",
+    label: "FAQ",
+    description: "Ответ на частые вопросы участников.",
+    command_name: "faq",
+    aliases: "вопросы, helpinfo",
+    response_mode: "text",
+    response_text: "Частые вопросы:\n1. Как получить роль?\n2. Где открыть тикет?\n3. Где правила?\n\nЕсли не нашёл ответ, создай тикет.",
+  },
+  {
+    key: "support",
+    label: "Support",
+    description: "Направляет пользователя к каналу помощи или тикетам.",
+    command_name: "support",
+    aliases: "помощь, tickethelp",
+    response_mode: "text",
+    response_text: "Нужна помощь? Открой тикет или напиши в канал поддержки. Если тикеты включены, используй панель сервера.",
+  },
+  {
+    key: "socials",
+    label: "Socials",
+    description: "Список ссылок и полезных ресурсов проекта.",
+    command_name: "socials",
+    aliases: "links, ссылки",
+    response_mode: "embed",
+    response_text: "Все ссылки Lunaria Fox в одном сообщении.",
+    embed_title: "Ссылки {server}",
+    embed_description: "Discord: ...\nSite: ...\nRules: ...\nSupport: ...",
+  },
+] as const;
+
+const customActionModes: Array<{
+  key: CustomCommandActionMode;
+  title: string;
+  description: string;
+}> = [
+  {
+    key: "reply",
+    title: "Message Reply",
+    description: "Обычный текстовый или embed-ответ в тот же канал.",
+  },
+  {
+    key: "role_grant",
+    title: "Give Role",
+    description: "Выдаёт выбранную роль себе или упомянутому участнику.",
+  },
+  {
+    key: "role_remove",
+    title: "Remove Role",
+    description: "Снимает выбранную роль себе или упомянутому участнику.",
+  },
+  {
+    key: "announce",
+    title: "Send to Channel",
+    description: "Отправляет сообщение в выбранный канал вместо обычного ответа.",
+  },
+] as const;
+
 function toggleValue(list: string[], value: string) {
   return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
 }
@@ -198,6 +286,10 @@ function createEmptyCustomCommand(): CustomCommandEditorState {
     command_name: "",
     description: "",
     trigger_type: "prefix",
+    action_mode: "reply",
+    action_target: "self",
+    action_role_id: "",
+    action_channel_id: "",
     response_mode: "text",
     response_text: "",
     embed_title: "",
@@ -215,6 +307,19 @@ function createEmptyCustomCommand(): CustomCommandEditorState {
   };
 }
 
+function createCustomCommandFromTemplate(template: CustomCommandTemplate): CustomCommandEditorState {
+  return {
+    ...createEmptyCustomCommand(),
+    command_name: template.command_name,
+    aliases: template.aliases,
+    response_mode: template.response_mode,
+    response_text: template.response_mode === "text" ? template.response_text : "",
+    embed_title: template.embed_title || "",
+    embed_description: template.embed_description || template.response_text,
+    description: template.description,
+  };
+}
+
 function buildCustomCommandPreview(prefix: string, commandName: string, aliases: string) {
   const normalizedPrefix = prefix || ".";
   const name = normalizeCommandName(commandName);
@@ -222,6 +327,151 @@ function buildCustomCommandPreview(prefix: string, commandName: string, aliases:
   if (!name) return `${normalizedPrefix}your_command`;
   if (aliasList.length === 0) return `${normalizedPrefix}${name}`;
   return `${normalizedPrefix}${name} / ${aliasList.slice(0, 2).map((alias) => `${normalizedPrefix}${normalizeCommandName(alias)}`).join(" / ")}`;
+}
+
+function getActionModeLabel(mode: CustomCommandActionMode) {
+  if (mode === "role_grant") return "выдача роли";
+  if (mode === "role_remove") return "снятие роли";
+  if (mode === "announce") return "сообщение в канал";
+  return "ответ";
+}
+
+function getRoleLabel(roleOptions: TagSelectorOption[], roleId: string) {
+  return roleOptions.find((option) => option.value === roleId)?.label || "Роль не выбрана";
+}
+
+function getChannelLabel(channelOptions: TagSelectorOption[], channelId: string) {
+  return channelOptions.find((option) => option.value === channelId)?.label || "Канал не выбран";
+}
+
+function inferCustomCommandActionState(command: GuildDashboardData["customCommands"][number]) {
+  const actions = Array.isArray(command.actions) ? (command.actions as Array<Record<string, unknown>>) : [];
+  const primaryAction = actions.find((item) => item && typeof item === "object" && item.type !== "reply");
+  const replyAction = actions.find((item) => item && typeof item === "object" && item.type === "reply");
+
+  if (primaryAction?.type === "add_role") {
+    return {
+      action_mode: "role_grant" as const,
+      action_target: primaryAction.target === "target" ? "target" as const : "self" as const,
+      action_role_id: String(primaryAction.role_id || ""),
+      action_channel_id: "",
+      response_mode:
+        replyAction?.response_mode === "embed" || command.response_mode === "embed" ? "embed" as const : "text" as const,
+      response_text: String(replyAction?.content || command.response_text || ""),
+      embed_title: String((replyAction?.embed as Record<string, unknown> | undefined)?.title || ""),
+      embed_description: String((replyAction?.embed as Record<string, unknown> | undefined)?.description || command.response_text || ""),
+      embed_color: String((replyAction?.embed as Record<string, unknown> | undefined)?.color || "#a77cff"),
+    };
+  }
+
+  if (primaryAction?.type === "remove_role") {
+    return {
+      action_mode: "role_remove" as const,
+      action_target: primaryAction.target === "target" ? "target" as const : "self" as const,
+      action_role_id: String(primaryAction.role_id || ""),
+      action_channel_id: "",
+      response_mode:
+        replyAction?.response_mode === "embed" || command.response_mode === "embed" ? "embed" as const : "text" as const,
+      response_text: String(replyAction?.content || command.response_text || ""),
+      embed_title: String((replyAction?.embed as Record<string, unknown> | undefined)?.title || ""),
+      embed_description: String((replyAction?.embed as Record<string, unknown> | undefined)?.description || command.response_text || ""),
+      embed_color: String((replyAction?.embed as Record<string, unknown> | undefined)?.color || "#a77cff"),
+    };
+  }
+
+  if (primaryAction?.type === "send") {
+    return {
+      action_mode: "announce" as const,
+      action_target: "self" as const,
+      action_role_id: "",
+      action_channel_id: String(primaryAction.channel_id || ""),
+      response_mode:
+        primaryAction.response_mode === "embed" || command.response_mode === "embed" ? "embed" as const : "text" as const,
+      response_text: String(primaryAction.content || command.response_text || ""),
+      embed_title: String((primaryAction.embed as Record<string, unknown> | undefined)?.title || ""),
+      embed_description: String((primaryAction.embed as Record<string, unknown> | undefined)?.description || command.response_text || ""),
+      embed_color: String((primaryAction.embed as Record<string, unknown> | undefined)?.color || "#a77cff"),
+    };
+  }
+
+  const embed =
+    command.embed && typeof command.embed === "object" && !Array.isArray(command.embed)
+      ? (command.embed as Record<string, unknown>)
+      : {};
+
+  return {
+    action_mode: "reply" as const,
+    action_target: "self" as const,
+    action_role_id: "",
+    action_channel_id: "",
+    response_mode: command.response_mode === "embed" ? "embed" as const : "text" as const,
+    response_text: command.response_text || "",
+    embed_title: String(embed.title || ""),
+    embed_description: String(embed.description || command.response_text || ""),
+    embed_color: String(embed.color || "#a77cff"),
+  };
+}
+
+function buildCustomCommandPayload(command: CustomCommandEditorState) {
+  const normalizedName = normalizeCommandName(command.command_name);
+  const baseEmbed =
+    command.response_mode === "embed"
+      ? {
+          title: command.embed_title || null,
+          description: command.embed_description,
+          color: command.embed_color || "#a77cff",
+        }
+      : null;
+
+  const actions: Array<Record<string, unknown>> = [];
+  if (command.action_mode === "role_grant" || command.action_mode === "role_remove") {
+    if (command.action_role_id) {
+      actions.push({
+        type: command.action_mode === "role_grant" ? "add_role" : "remove_role",
+        role_id: command.action_role_id,
+        target: command.action_target,
+      });
+    }
+
+    if ((command.response_mode === "text" && command.response_text.trim()) || (command.response_mode === "embed" && command.embed_description.trim())) {
+      actions.push({
+        type: "reply",
+        content: command.response_mode === "text" ? command.response_text : command.embed_description,
+        response_mode: command.response_mode,
+        embed: baseEmbed,
+        ephemeral: command.ephemeral,
+      });
+    }
+  } else if (command.action_mode === "announce") {
+    actions.push({
+      type: "send",
+      channel_id: command.action_channel_id || null,
+      content: command.response_mode === "text" ? command.response_text : command.embed_description,
+      response_mode: command.response_mode,
+      embed: baseEmbed,
+    });
+  }
+
+  return {
+    command_name: normalizedName,
+    description: command.description,
+    trigger_type: "prefix",
+    response_mode: command.response_mode,
+    response_text: command.response_mode === "embed" ? command.embed_description : command.response_text,
+    embed: command.action_mode === "reply" ? baseEmbed : null,
+    actions,
+    aliases: parseCsv(command.aliases),
+    enabled: command.enabled,
+    cooldown: command.cooldown,
+    allowed_roles: command.allowed_roles,
+    denied_roles: command.denied_roles,
+    allowed_channels: command.allowed_channels,
+    denied_channels: command.denied_channels,
+    meta: {
+      ephemeral: command.ephemeral,
+      delete_trigger: command.delete_trigger,
+    },
+  };
 }
 
 function summarizeSyncState(syncState: DashboardSyncStateRow | null) {
@@ -232,6 +482,29 @@ function summarizeSyncState(syncState: DashboardSyncStateRow | null) {
   if (status === "applied") return `Применено: rev ${syncState.bot_applied_revision || syncState.revision || 0}`;
   if (status === "error") return syncState.last_error || "Ошибка синхронизации";
   return `Ожидание: rev ${syncState.revision || 0}`;
+}
+
+function formatAnalyticsEventLabel(eventType: string | null) {
+  const value = String(eventType || "event");
+  if (value === "command") return "Command";
+  if (value === "member_join") return "Member Join";
+  if (value === "member_leave") return "Member Leave";
+  if (value === "guild_join") return "Guild Join";
+  if (value === "guild_leave") return "Guild Leave";
+  return value.replaceAll("_", " ");
+}
+
+function summarizeAnalyticsPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "Без payload";
+  const objectPayload = payload as Record<string, unknown>;
+  if (objectPayload.command_name) return `Команда: ${String(objectPayload.command_name)}`;
+  if (objectPayload.guild_name) return `Сервер: ${String(objectPayload.guild_name)}`;
+  if (objectPayload.user_id) return `User ID: ${String(objectPayload.user_id)}`;
+
+  const pairs = Object.entries(objectPayload)
+    .slice(0, 3)
+    .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`);
+  return pairs.join(" · ") || "Без payload";
 }
 
 export function GuildDashboardClient({ guildId, data }: Props) {
@@ -291,24 +564,25 @@ export function GuildDashboardClient({ guildId, data }: Props) {
 
   const [customCommands, setCustomCommands] = useState<CustomCommandEditorState[]>(
     (data.customCommands || []).map((command) => {
-      const embed =
-        command.embed && typeof command.embed === "object" && !Array.isArray(command.embed)
-          ? (command.embed as Record<string, unknown>)
-          : {};
       const meta =
         command.meta && typeof command.meta === "object" && !Array.isArray(command.meta)
           ? (command.meta as Record<string, unknown>)
           : {};
+      const actionState = inferCustomCommandActionState(command);
 
       return {
         command_name: command.command_name,
         description: command.description || "",
         trigger_type: "prefix",
-        response_mode: command.response_mode === "embed" ? "embed" : "text",
-        response_text: command.response_text || "",
-        embed_title: String(embed.title || ""),
-        embed_description: String(embed.description || command.response_text || ""),
-        embed_color: String(embed.color || "#a77cff"),
+        action_mode: actionState.action_mode,
+        action_target: actionState.action_target,
+        action_role_id: actionState.action_role_id,
+        action_channel_id: actionState.action_channel_id,
+        response_mode: actionState.response_mode,
+        response_text: actionState.response_text,
+        embed_title: actionState.embed_title,
+        embed_description: actionState.embed_description,
+        embed_color: actionState.embed_color,
         aliases: (command.aliases || []).join(", "),
         enabled: command.enabled ?? true,
         cooldown: command.cooldown ?? 0,
@@ -533,6 +807,9 @@ export function GuildDashboardClient({ guildId, data }: Props) {
     }),
     [commandPermissions, customCommands.length],
   );
+
+  const recentLogEntries = useMemo(() => data.recentLogEntries.slice(0, 12), [data.recentLogEntries]);
+  const recentAnalyticsEvents = useMemo(() => data.recentAnalyticsEvents.slice(0, 12), [data.recentAnalyticsEvents]);
 
   useEffect(() => {
     let disposed = false;
@@ -1262,8 +1539,8 @@ export function GuildDashboardClient({ guildId, data }: Props) {
               <div>
                 <h3>Custom Commands</h3>
                 <p className="muted">
-                  Здесь создаются именно custom commands сервера. Сейчас они работают как команды по префиксу, например{" "}
-                  <code>{overview.prefix}rules</code> или <code>{overview.prefix}faq</code>.
+                  Здесь создаются prefix-команды сервера. Они могут отвечать текстом, отправлять embed, выдавать роль,
+                  снимать роль или писать в другой канал.
                 </p>
               </div>
               <button
@@ -1273,6 +1550,32 @@ export function GuildDashboardClient({ guildId, data }: Props) {
               >
                 Add custom command
               </button>
+            </div>
+
+            <div className="section command-custom-section">
+              <div className="inline-row">
+                <h3>Quick builder</h3>
+                <span className="badge muted">Juniper-like flow</span>
+              </div>
+              <div className="panel-note command-panel-note">
+                Выбираешь шаблон или action mode, правишь ответ и сохраняешь. Команда сразу попадёт в <code>custom_commands</code> и после sync будет доступна боту.
+              </div>
+              <div className="template-grid">
+                {customCommandTemplates.map((template) => (
+                  <button
+                    className="template-card"
+                    key={template.key}
+                    onClick={() =>
+                      setCustomCommands((current) => [...current, createCustomCommandFromTemplate(template)])
+                    }
+                    type="button"
+                  >
+                    <span className="badge muted">{template.label}</span>
+                    <strong>{overview.prefix}{template.command_name}</strong>
+                    <p>{template.description}</p>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="editor-card-stack">
@@ -1285,7 +1588,7 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                         <p>
                           {command.description || "Новая кастомная команда без описания."}
                           {" "}
-                          {command.response_mode === "embed" ? "Ответ отправится embed-сообщением." : "Ответ отправится обычным текстом."}
+                          Сейчас это {getActionModeLabel(command.action_mode)}.
                         </p>
                       </div>
                       <div className="inline-row">
@@ -1360,6 +1663,22 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                           </select>
                         </div>
                         <div className="field">
+                          <label>Action mode</label>
+                          <select
+                            value={command.action_mode}
+                            onChange={(event) =>
+                              updateCustomCommand(index, {
+                                action_mode: event.target.value as CustomCommandActionMode,
+                              })
+                            }
+                          >
+                            <option value="reply">Reply in same channel</option>
+                            <option value="role_grant">Give role</option>
+                            <option value="role_remove">Remove role</option>
+                            <option value="announce">Send to channel</option>
+                          </select>
+                        </div>
+                        <div className="field">
                           <label>Response mode</label>
                           <select
                             value={command.response_mode}
@@ -1373,6 +1692,80 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                             <option value="embed">Embed message</option>
                           </select>
                         </div>
+                      </div>
+                      <div className="module-card-grid compact-module-grid" style={{ marginTop: 16 }}>
+                        {customActionModes.map((mode) => (
+                          <button
+                            aria-pressed={command.action_mode === mode.key}
+                            className={`module-toggle-card ${command.action_mode === mode.key ? "module-toggle-card-active" : ""}`}
+                            key={mode.key}
+                            onClick={() => updateCustomCommand(index, { action_mode: mode.key })}
+                            type="button"
+                          >
+                            <div className="module-toggle-top">
+                              <span className="module-toggle-state">
+                                {command.action_mode === mode.key ? "Selected" : "Available"}
+                              </span>
+                            </div>
+                            <strong>{mode.title}</strong>
+                            <p>{mode.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                      {command.action_mode === "role_grant" || command.action_mode === "role_remove" ? (
+                        <div className="form-grid" style={{ marginTop: 16 }}>
+                          <div className="field">
+                            <label>Role to manage</label>
+                            <select
+                              value={command.action_role_id}
+                              onChange={(event) => updateCustomCommand(index, { action_role_id: event.target.value })}
+                            >
+                              <option value="">Not set</option>
+                              {data.roles.map((role) => (
+                                <option key={`cc-role-${role.role_id}`} value={role.role_id}>
+                                  {role.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="field">
+                            <label>Target</label>
+                            <select
+                              value={command.action_target}
+                              onChange={(event) =>
+                                updateCustomCommand(index, {
+                                  action_target: event.target.value === "target" ? "target" : "self",
+                                })
+                              }
+                            >
+                              <option value="self">Who used the command</option>
+                              <option value="target">Mentioned member</option>
+                            </select>
+                          </div>
+                        </div>
+                      ) : null}
+                      {command.action_mode === "announce" ? (
+                        <div className="field" style={{ marginTop: 16 }}>
+                          <label>Destination channel</label>
+                          <select
+                            value={command.action_channel_id}
+                            onChange={(event) => updateCustomCommand(index, { action_channel_id: event.target.value })}
+                          >
+                            <option value="">Use current channel</option>
+                            {data.channels.map((channel) => (
+                              <option key={`cc-channel-${channel.channel_id}`} value={channel.channel_id}>
+                                {channel.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : null}
+                      <div className="chip-row command-helper-row" style={{ marginTop: 12 }}>
+                        <span className="tag-pill">{"{user}"}</span>
+                        <span className="tag-pill">{"{server}"}</span>
+                        <span className="tag-pill">{"{channel}"}</span>
+                        <span className="tag-pill">{"{args}"}</span>
+                        <span className="tag-pill">{"{target}"}</span>
                       </div>
                     </div>
 
@@ -1427,7 +1820,7 @@ export function GuildDashboardClient({ guildId, data }: Props) {
 
                     {command.response_mode === "text" ? (
                       <div className="field" style={{ marginTop: 14 }}>
-                        <label>Text response</label>
+                        <label>{command.action_mode === "reply" ? "Text response" : "Confirmation / content"}</label>
                         <textarea
                           placeholder="Например: Привет, {user}! Добро пожаловать на {server}."
                           value={command.response_text}
@@ -1468,6 +1861,59 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                         </div>
                       </div>
                     )}
+
+                    <div className="section command-custom-section">
+                      <div className="inline-row">
+                        <h3>Preview</h3>
+                        <span className="badge muted">Before save</span>
+                      </div>
+                      <div className="custom-preview-card">
+                        <div className="custom-preview-head">
+                          <strong>{buildCustomCommandPreview(overview.prefix, command.command_name, command.aliases)}</strong>
+                          <span className={`badge ${command.response_mode === "embed" ? "success" : "muted"}`}>
+                            {command.action_mode === "reply"
+                              ? command.response_mode === "embed"
+                                ? "Embed Reply"
+                                : "Text Reply"
+                              : getActionModeLabel(command.action_mode)}
+                          </span>
+                        </div>
+                        {command.action_mode === "role_grant" || command.action_mode === "role_remove" ? (
+                          <div className="panel-note command-action-note">
+                            {command.action_mode === "role_grant" ? "Будет выдана роль" : "Будет снята роль"}:
+                            {" "}
+                            <strong>{getRoleLabel(roleOptions, command.action_role_id)}</strong>
+                            {" · "}
+                            Цель:
+                            {" "}
+                            <strong>{command.action_target === "target" ? "упомянутый участник" : "автор команды"}</strong>
+                          </div>
+                        ) : null}
+                        {command.action_mode === "announce" ? (
+                          <div className="panel-note command-action-note">
+                            Сообщение уйдёт в канал:
+                            {" "}
+                            <strong>{getChannelLabel(channelOptions, command.action_channel_id)}</strong>
+                          </div>
+                        ) : null}
+                        {command.response_mode === "embed" ? (
+                          <div className="custom-preview-embed">
+                            <span
+                              className="custom-preview-embed-bar"
+                              style={{ backgroundColor: command.embed_color || "#a77cff" }}
+                            />
+                            <div className="custom-preview-embed-body">
+                              <strong>{command.embed_title || "Embed title"}</strong>
+                              <p>{command.embed_description || "Embed description will appear here."}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="custom-preview-text">
+                            {command.response_text || "Текст ответа появится здесь."}
+                          </div>
+                        )}
+                      </div>
+                    </div>
 
                     <div className="section command-custom-section">
                       <div className="inline-row">
@@ -1551,31 +1997,7 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                   color: group.color || null,
                 })),
                 customCommands: customCommands.map((command) => ({
-                  command_name: normalizeCommandName(command.command_name),
-                  description: command.description,
-                  trigger_type: "prefix",
-                  response_mode: command.response_mode,
-                  response_text:
-                    command.response_mode === "embed" ? command.embed_description : command.response_text,
-                  embed:
-                    command.response_mode === "embed"
-                      ? {
-                          title: command.embed_title || null,
-                          description: command.embed_description,
-                          color: command.embed_color || "#a77cff",
-                        }
-                      : null,
-                  aliases: parseCsv(command.aliases),
-                  enabled: command.enabled,
-                  cooldown: command.cooldown,
-                  allowed_roles: command.allowed_roles,
-                  denied_roles: command.denied_roles,
-                  allowed_channels: command.allowed_channels,
-                  denied_channels: command.denied_channels,
-                  meta: {
-                    ephemeral: command.ephemeral,
-                    delete_trigger: command.delete_trigger,
-                  },
+                  ...buildCustomCommandPayload(command),
                 })),
               })
             }
@@ -1660,6 +2082,64 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                 onChange={(event) => setModeration({ ...moderation, regexRules: event.target.value })}
               />
             </div>
+          </div>
+
+          <div className="section">
+            <div className="inline-row">
+              <div>
+                <h3>Recent Log Feed</h3>
+                <p className="muted">Последние записи из <code>guild_log_entries</code>, которые бот уже отправил или попытался отправить.</p>
+              </div>
+              <span className="badge muted">{recentLogEntries.length} item(s)</span>
+            </div>
+            {recentLogEntries.length > 0 ? (
+              <div className="activity-feed-grid">
+                {recentLogEntries.map((entry, index) => (
+                  <article className="activity-card" key={`log-${entry.id ?? entry.created_at ?? index}`}>
+                    <div className="activity-card-head">
+                      <span className="badge muted">{entry.log_type}</span>
+                      <span className="activity-time">{entry.created_at ? formatDate(entry.created_at) : "Unknown time"}</span>
+                    </div>
+                    <strong>{entry.message || "Без текста"}</strong>
+                    <p>
+                      {entry.user_id ? `User: ${entry.user_id}` : "User: —"}
+                      {" · "}
+                      {entry.target_id ? `Target: ${entry.target_id}` : "Target: —"}
+                      {" · "}
+                      {entry.moderator_id ? `Mod: ${entry.moderator_id}` : "Mod: —"}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="panel-note">Пока нет записей в журнале. Они появятся после moderation, tickets и других bot-side событий.</div>
+            )}
+          </div>
+
+          <div className="section">
+            <div className="inline-row">
+              <div>
+                <h3>Recent Activity</h3>
+                <p className="muted">События из <code>bot_analytics</code>: команды, входы, выходы и runtime-активность.</p>
+              </div>
+              <span className="badge muted">{recentAnalyticsEvents.length} item(s)</span>
+            </div>
+            {recentAnalyticsEvents.length > 0 ? (
+              <div className="activity-feed-grid">
+                {recentAnalyticsEvents.map((event, index) => (
+                  <article className="activity-card" key={`event-${event.id ?? event.created_at ?? index}`}>
+                    <div className="activity-card-head">
+                      <span className="badge muted">{formatAnalyticsEventLabel(event.event_type)}</span>
+                      <span className="activity-time">{event.created_at ? formatDate(event.created_at) : "Unknown time"}</span>
+                    </div>
+                    <strong>{summarizeAnalyticsPayload(event.payload)}</strong>
+                    <p>{event.event_type === "command" ? "Учитывается в analytics summary и premium analytics." : "Служебное событие бота."}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="panel-note">Пока нет аналитических событий для этого сервера.</div>
+            )}
           </div>
 
           <div className="section">

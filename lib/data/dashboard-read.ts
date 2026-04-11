@@ -2,6 +2,7 @@ import { getPremiumGuildSet } from "@/lib/env";
 import { canManageGuild, fetchDiscordGuilds } from "@/lib/auth/discord";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
+  BotAnalyticsEventRow,
   BrandRoleRow,
   BotGuildRow,
   CommandGroupRow,
@@ -13,6 +14,7 @@ import type {
   GuildChannelRow,
   GuildConfigRow,
   GuildDashboardData,
+  GuildLogEntryRow,
   GuildLogSettingRow,
   GuildPremiumSettingsRow,
   GuildRoleRow,
@@ -166,6 +168,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
       smartFilter: null,
       guildRules: [],
       logSettings: [],
+      recentLogEntries: [],
       ticketConfig: null,
       ticketPanels: [],
       recentTickets: [],
@@ -173,6 +176,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
       voicemasterRooms: [],
       premiumSettings: null,
       premiumAnalytics: emptyPremiumAnalytics(),
+      recentAnalyticsEvents: [],
       premiumEnabled: premiumFallback,
       syncState: null,
     };
@@ -193,6 +197,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     smartFilter,
     guildRules,
     logSettings,
+    recentLogEntries,
     ticketConfig,
     ticketPanels,
     recentTickets,
@@ -216,6 +221,12 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     supabase.from("smartfilter_configs").select("*").eq("guild_id", guildId).maybeSingle(),
     supabase.from("guild_rules").select("*").eq("guild_id", guildId).order("rule_order"),
     supabase.from("guild_log_settings").select("*").eq("guild_id", guildId).order("log_type"),
+    supabase
+      .from("guild_log_entries")
+      .select("*")
+      .eq("guild_id", guildId)
+      .order("created_at", { ascending: false })
+      .limit(20),
     supabase.from("ticket_configs").select("*").eq("guild_id", guildId).maybeSingle(),
     supabase.from("ticket_panels").select("*").eq("guild_id", guildId).order("panel_key"),
     supabase.from("tickets").select("*").eq("guild_id", guildId).order("updated_at", { ascending: false }).limit(8),
@@ -224,7 +235,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     supabase.from("guild_premium_settings").select("*").eq("guild_id", guildId).maybeSingle(),
     supabase
       .from("bot_analytics")
-      .select("event_type, payload")
+      .select("id, guild_id, event_type, payload, created_at")
       .eq("guild_id", guildId)
       .order("created_at", { ascending: false })
       .limit(500),
@@ -252,6 +263,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     smartFilter: (smartFilter.data as SmartFilterRow | null) || null,
     guildRules: (guildRules.data || []) as GuildRuleRow[],
     logSettings: (logSettings.data || []) as GuildLogSettingRow[],
+    recentLogEntries: (recentLogEntries.data || []) as GuildLogEntryRow[],
     ticketConfig: (ticketConfig.data as TicketConfigRow | null) || null,
     ticketPanels: (ticketPanels.data || []) as TicketPanelRow[],
     recentTickets: (recentTickets.data || []) as TicketRow[],
@@ -263,6 +275,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
       : buildPremiumAnalytics(
           ((analyticsEvents.data || []) as Array<{ event_type: string | null; payload: { command_name?: string } | null }>),
         ),
+    recentAnalyticsEvents: (analyticsEvents.data || []) as BotAnalyticsEventRow[],
     premiumEnabled,
     syncState:
       syncState.error || !syncState.data ? null : (syncState.data as DashboardSyncStateRow | null),

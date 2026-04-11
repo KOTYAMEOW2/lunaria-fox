@@ -240,6 +240,26 @@ export type GuildLogSettingRow = {
   updated_at: string | null;
 };
 
+export type GuildLogEntryRow = {
+  id: number | string | null;
+  guild_id: string;
+  log_type: string;
+  user_id: string | null;
+  target_id: string | null;
+  moderator_id: string | null;
+  message: string | null;
+  meta: Json | null;
+  created_at: string | null;
+};
+
+export type BotAnalyticsEventRow = {
+  id: number | string | null;
+  guild_id: string | null;
+  event_type: string | null;
+  payload: Json | null;
+  created_at: string | null;
+};
+
 export type TicketConfigRow = {
   guild_id: string;
   enabled: boolean | null;
@@ -342,6 +362,7 @@ export type GuildDashboardData = {
   smartFilter: SmartFilterRow | null;
   guildRules: GuildRuleRow[];
   logSettings: GuildLogSettingRow[];
+  recentLogEntries: GuildLogEntryRow[];
   ticketConfig: TicketConfigRow | null;
   ticketPanels: TicketPanelRow[];
   recentTickets: TicketRow[];
@@ -349,6 +370,7 @@ export type GuildDashboardData = {
   voicemasterRooms: VoicemasterRoomRow[];
   premiumSettings: GuildPremiumSettingsRow | null;
   premiumAnalytics: PremiumAnalyticsSummary;
+  recentAnalyticsEvents: BotAnalyticsEventRow[];
   premiumEnabled: boolean;
   syncState: DashboardSyncStateRow | null;
 };

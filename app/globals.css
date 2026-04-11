@@ -1301,6 +1301,157 @@ button {
   margin-top: 14px;
 }
 
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.template-card {
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(209, 188, 255, 0.12);
+  background:
+    linear-gradient(180deg, rgba(16, 12, 29, 0.98), rgba(9, 7, 18, 0.96)),
+    rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  text-align: left;
+  display: grid;
+  gap: 10px;
+  box-shadow: 0 16px 30px rgba(5, 4, 10, 0.18);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.template-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(167, 124, 255, 0.28);
+  box-shadow: 0 20px 36px rgba(5, 4, 10, 0.22);
+}
+
+.template-card strong {
+  font-size: 1.05rem;
+}
+
+.template-card p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.command-helper-row .tag-pill {
+  cursor: default;
+}
+
+.custom-preview-card {
+  margin-top: 14px;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(209, 188, 255, 0.12);
+  background:
+    linear-gradient(180deg, rgba(15, 11, 28, 0.98), rgba(8, 6, 15, 0.98)),
+    rgba(255, 255, 255, 0.03);
+}
+
+.custom-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.custom-preview-text {
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(209, 188, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.custom-preview-embed {
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(209, 188, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.custom-preview-embed-bar {
+  border-radius: 999px;
+  min-height: 100%;
+}
+
+.custom-preview-embed-body {
+  display: grid;
+  gap: 8px;
+}
+
+.custom-preview-embed-body strong {
+  font-size: 1rem;
+}
+
+.custom-preview-embed-body p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.command-action-note {
+  margin-bottom: 14px;
+}
+
+.activity-feed-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.activity-card {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(209, 188, 255, 0.12);
+  background:
+    linear-gradient(180deg, rgba(16, 12, 29, 0.98), rgba(9, 7, 18, 0.96)),
+    rgba(255, 255, 255, 0.02);
+  box-shadow: 0 16px 30px rgba(5, 4, 10, 0.18);
+  display: grid;
+  gap: 10px;
+}
+
+.activity-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.activity-time {
+  color: var(--text-soft);
+  font-size: 0.84rem;
+}
+
+.activity-card strong {
+  font-size: 0.98rem;
+  line-height: 1.5;
+}
+
+.activity-card p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.55;
+  word-break: break-word;
+}
+
 .module-toggle-card-active {
   border-color: rgba(167, 124, 255, 0.3);
   background:
@@ -1482,8 +1633,11 @@ button {
   .command-grid,
   .command-summary-grid,
   .command-card-grid,
+  .template-grid,
   .module-card-grid,
+  .compact-module-grid,
   .premium-module-grid,
+  .activity-feed-grid,
   .grid-3,
   .grid-2,
   .guild-grid,
