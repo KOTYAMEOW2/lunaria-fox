@@ -1,4 +1,5 @@
 import type { DashboardSyncStateRow } from "@/lib/types";
+import { getPremiumGuildSet } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { uniqueStrings } from "@/lib/utils";
 
@@ -48,6 +49,24 @@ function asErrorMessage(error: unknown) {
 
 function dedupeStrings(input: string[] | undefined) {
   return uniqueStrings(input || []);
+}
+
+async function assertPremiumAccess(guildId: string) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) throw new Error("Supabase is not configured.");
+
+  if (getPremiumGuildSet().has(guildId)) return;
+
+  const { data, error } = await supabase
+    .from("guild_premium_settings")
+    .select("premium_active")
+    .eq("guild_id", guildId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (data?.premium_active === true) return;
+
+  throw new Error("Premium required");
 }
 
 async function queueGuildSync(guildId: string, options: SyncOptions) {
@@ -389,6 +408,7 @@ export async function savePremiumSettings(
 ) {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("Supabase is not configured.");
+  await assertPremiumAccess(guildId);
 
   const now = new Date().toISOString();
 

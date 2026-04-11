@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 
 import { TagSelector, type TagSelectorOption } from "@/components/dashboard/tag-selector";
 import type { DashboardSyncStateRow, GuildDashboardData } from "@/lib/types";
@@ -20,6 +20,9 @@ type DashboardSectionId =
   | "branding"
   | "premium";
 
+type CommandSubsectionId = "registry" | "groups" | "access" | "custom";
+type OverviewModuleKey = "moderation" | "lunarialog" | "tickets" | "voicemaster" | "serverpanel";
+
 const dashboardSections: Array<{ id: DashboardSectionId; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "commands", label: "Commands" },
@@ -30,12 +33,51 @@ const dashboardSections: Array<{ id: DashboardSectionId; label: string }> = [
   { id: "premium", label: "Premium" },
 ];
 
+const commandSubsections: Array<{ id: CommandSubsectionId; label: string }> = [
+  { id: "registry", label: "Registry" },
+  { id: "groups", label: "Groups" },
+  { id: "access", label: "Access Rules" },
+  { id: "custom", label: "Custom" },
+];
+
 const premiumFeatureOptions = [
-  { key: "branding", label: "Premium Branding" },
-  { key: "brand-role", label: "Brand Role" },
-  { key: "analytics", label: "Analytics Pro" },
-  { key: "server-panel", label: "Server Panel Customization" },
-  { key: "welcome", label: "Welcome / Leave Branding" },
+  { key: "branding", label: "Premium Branding", description: "Webhook style, embeds, footer и branding-слой бота." },
+  { key: "brand-role", label: "Brand Role", description: "Фирменная роль сервера с кастомным оформлением." },
+  { key: "analytics", label: "Analytics Pro", description: "Расширенная аналитика по событиям и командам сервера." },
+  { key: "server-panel", label: "Server Panel Customization", description: "Кастомный серверный panel-блок и тексты." },
+  { key: "welcome", label: "Welcome / Leave Branding", description: "Приветствия, уходы и DM-оформление под бренд." },
+] as const;
+
+const overviewModuleCards: Array<{
+  key: OverviewModuleKey;
+  title: string;
+  description: string;
+}> = [
+  {
+    key: "moderation",
+    title: "Moderation",
+    description: "Фильтры, staff-инструменты, правила и server control.",
+  },
+  {
+    key: "lunarialog",
+    title: "Lunaria Log",
+    description: "Логи событий, действия участников и служебные записи.",
+  },
+  {
+    key: "tickets",
+    title: "Tickets",
+    description: "Панели обращений, support queue и ticket flow.",
+  },
+  {
+    key: "voicemaster",
+    title: "VoiceMaster",
+    description: "Временные комнаты, ownership и voice automation.",
+  },
+  {
+    key: "serverpanel",
+    title: "Server Panel",
+    description: "Системная панель сервера и публичные служебные блоки.",
+  },
 ] as const;
 
 function toggleValue(list: string[], value: string) {
@@ -67,6 +109,9 @@ export function GuildDashboardClient({ guildId, data }: Props) {
   const [status, setStatus] = useState<Record<string, string>>({});
   const [syncState, setSyncState] = useState<DashboardSyncStateRow | null>(data.syncState);
   const [activeSection, setActiveSection] = useState<DashboardSectionId>("overview");
+  const [activeCommandPanel, setActiveCommandPanel] = useState<CommandSubsectionId>("registry");
+  const [commandSearch, setCommandSearch] = useState("");
+  const [commandFilter, setCommandFilter] = useState<"all" | "enabled" | "disabled" | "allowlist">("all");
 
   const [overview, setOverview] = useState({
     prefix: data.config?.prefix || ".",
@@ -249,6 +294,8 @@ export function GuildDashboardClient({ guildId, data }: Props) {
       (data.premiumSettings?.welcome_settings as { dm_message?: string } | null)?.dm_message || "",
   });
 
+  const hasPremiumAccess = Boolean(data.premiumEnabled || data.premiumSettings?.premium_active);
+
   const roleOptions = useMemo<TagSelectorOption[]>(
     () =>
       data.roles.map((role) => ({
@@ -279,6 +326,61 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           hint: group.group_id.trim().toLowerCase(),
         })),
     [commandGroups],
+  );
+
+  const deferredCommandSearch = useDeferredValue(commandSearch);
+
+  const commandRegistryMap = useMemo(
+    () =>
+      new Map(
+        data.commandsRegistry.map((command) => [
+          command.command_name,
+          {
+            description: command.description,
+            category: command.category,
+            commandType: command.command_type,
+          },
+        ]),
+      ),
+    [data.commandsRegistry],
+  );
+
+  const filteredCommandPermissions = useMemo(() => {
+    const searchValue = deferredCommandSearch.trim().toLowerCase();
+
+    return commandPermissions
+      .map((permission, index) => ({
+        index,
+        permission,
+        registry: commandRegistryMap.get(permission.command_name),
+      }))
+      .filter(({ permission, registry }) => {
+        if (commandFilter === "enabled" && !permission.enabled) return false;
+        if (commandFilter === "disabled" && permission.enabled) return false;
+        if (commandFilter === "allowlist" && permission.mode !== "allowlist") return false;
+
+        if (!searchValue) return true;
+
+        return [
+          permission.command_name,
+          registry?.description || "",
+          registry?.category || "",
+          registry?.commandType || "",
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(searchValue);
+      });
+  }, [commandFilter, commandPermissions, commandRegistryMap, deferredCommandSearch]);
+
+  const commandStats = useMemo(
+    () => ({
+      total: commandPermissions.length,
+      enabled: commandPermissions.filter((permission) => permission.enabled).length,
+      allowlist: commandPermissions.filter((permission) => permission.mode === "allowlist").length,
+      custom: customCommands.length,
+    }),
+    [commandPermissions, customCommands.length],
   );
 
   useEffect(() => {
@@ -367,6 +469,15 @@ export function GuildDashboardClient({ guildId, data }: Props) {
       current.map((item, itemIndex) =>
         itemIndex === index ? { ...item, [key]: next.join(", ") } : item,
       ),
+    );
+  }
+
+  function updateCommandPermission(
+    index: number,
+    patch: Partial<(typeof commandPermissions)[number]>,
+  ) {
+    setCommandPermissions((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
     );
   }
 
@@ -488,22 +599,37 @@ export function GuildDashboardClient({ guildId, data }: Props) {
 
           <div className="section">
             <h3>Modules</h3>
-            <div className="checkbox-grid">
-              {Object.entries(overview.enabledModules).map(([key, enabled]) => (
-                <label className="checkbox-card" key={key}>
-                  <input
-                    checked={enabled}
-                    type="checkbox"
-                    onChange={() =>
+            <div className="module-card-grid">
+              {overviewModuleCards.map((module) => {
+                const enabled = overview.enabledModules[module.key];
+
+                return (
+                  <button
+                    aria-pressed={enabled}
+                    className={`module-toggle-card ${enabled ? "module-toggle-card-active" : ""}`}
+                    key={module.key}
+                    onClick={() =>
                       setOverview({
                         ...overview,
-                        enabledModules: { ...overview.enabledModules, [key]: !enabled },
+                        enabledModules: {
+                          ...overview.enabledModules,
+                          [module.key]: !enabled,
+                        },
                       })
                     }
-                  />
-                  <span>{key}</span>
-                </label>
-              ))}
+                    type="button"
+                  >
+                    <div className="module-toggle-top">
+                      <span className="module-toggle-state">{enabled ? "Enabled" : "Disabled"}</span>
+                      <span className={`module-toggle-knob ${enabled ? "module-toggle-knob-active" : ""}`}>
+                        <span />
+                      </span>
+                    </div>
+                    <strong>{module.title}</strong>
+                    <p>{module.description}</p>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -552,74 +678,160 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           <div className="dashboard-head">
             <div>
               <span className="eyebrow">Commands</span>
-              <h2>Command registry и custom commands</h2>
+              <h2>Командный центр сервера</h2>
             </div>
             <span className="badge muted">{status.commands || "Editing locally"}</span>
           </div>
 
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Command</th>
-                <th>Enabled</th>
-                <th>Cooldown</th>
-                <th>Mode</th>
-              </tr>
-            </thead>
-            <tbody>
-              {commandPermissions.map((permission, index) => (
-                <tr key={permission.command_name}>
-                  <td>/{permission.command_name}</td>
-                  <td>
-                    <input
-                      checked={permission.enabled}
-                      type="checkbox"
-                      onChange={() =>
-                        setCommandPermissions((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index ? { ...item, enabled: !item.enabled } : item,
-                          ),
-                        )
-                      }
-                    />
-                  </td>
-                  <td>
-                    <input
-                      value={permission.cooldown}
-                      onChange={(event) =>
-                        setCommandPermissions((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? { ...item, cooldown: Number(event.target.value) || 0 }
-                              : item,
-                          ),
-                        )
-                      }
-                    />
-                  </td>
-                  <td>
-                    <select
-                      value={permission.mode}
-                      onChange={(event) =>
-                        setCommandPermissions((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index ? { ...item, mode: event.target.value } : item,
-                          ),
-                        )
-                      }
-                    >
-                      <option value="inherit">inherit</option>
-                      <option value="allowlist">allowlist</option>
-                    </select>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="command-summary-grid">
+            <div className="command-summary-card">
+              <span>Всего команд</span>
+              <strong>{commandStats.total}</strong>
+              <p>Полный slash registry для сервера.</p>
+            </div>
+            <div className="command-summary-card">
+              <span>Активные</span>
+              <strong>{commandStats.enabled}</strong>
+              <p>Доступны участникам и staff прямо сейчас.</p>
+            </div>
+            <div className="command-summary-card">
+              <span>Allowlist режим</span>
+              <strong>{commandStats.allowlist}</strong>
+              <p>Команды с точечными access rules.</p>
+            </div>
+            <div className="command-summary-card">
+              <span>Custom commands</span>
+              <strong>{commandStats.custom}</strong>
+              <p>Локальные ответы и server-specific utilities.</p>
+            </div>
+          </div>
 
-          <div className="section">
+          <div className="subsection-switcher">
+            {commandSubsections.map((section) => (
+              <button
+                className={activeCommandPanel === section.id ? "subsection-switcher-active" : ""}
+                key={section.id}
+                onClick={() => setActiveCommandPanel(section.id)}
+                type="button"
+              >
+                {section.label}
+              </button>
+            ))}
+          </div>
+
+          <div className={activeCommandPanel === "registry" ? "section" : "section dashboard-section-hidden"}>
+            <div className="command-toolbar">
+              <div className="field command-search-field">
+                <label>Search command</label>
+                <input
+                  onChange={(event) => setCommandSearch(event.target.value)}
+                  placeholder="Например uptime, статистика, moderation"
+                  value={commandSearch}
+                />
+              </div>
+
+              <div className="command-filter-cluster">
+                <span className="muted">Показывать</span>
+                {(
+                  [
+                    ["all", "Все"],
+                    ["enabled", "Активные"],
+                    ["disabled", "Выключенные"],
+                    ["allowlist", "Allowlist"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    className={commandFilter === value ? "command-filter-active" : ""}
+                    key={value}
+                    onClick={() => setCommandFilter(value)}
+                    type="button"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="panel-note command-panel-note">
+              Здесь управляется registry slash-команд. Изменения сохраняются в Supabase и потом применяются ботом через
+              sync revision.
+            </div>
+
+            <div className="command-card-grid">
+              {filteredCommandPermissions.length > 0 ? (
+                filteredCommandPermissions.map(({ permission, index, registry }) => (
+                  <article className="command-registry-card" key={permission.command_name}>
+                    <div className="command-registry-head">
+                      <div>
+                        <div className="command-title-row">
+                          <span className="command-slash">/{permission.command_name}</span>
+                          {registry?.category ? <span className="command-mini-badge">{registry.category}</span> : null}
+                          {registry?.commandType ? <span className="command-mini-badge">{registry.commandType}</span> : null}
+                        </div>
+                        <p>{registry?.description || "Команда без описания в registry."}</p>
+                      </div>
+                      <span className={`badge ${permission.enabled ? "success" : "warn"}`}>
+                        {permission.enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
+
+                    <div className="command-card-controls">
+                      <button
+                        aria-pressed={permission.enabled}
+                        className={`toggle-switch ${permission.enabled ? "toggle-switch-active" : ""}`}
+                        onClick={() => updateCommandPermission(index, { enabled: !permission.enabled })}
+                        type="button"
+                      >
+                        <span />
+                        <strong>{permission.enabled ? "Команда включена" : "Команда выключена"}</strong>
+                      </button>
+
+                      <div className="field compact-field">
+                        <label>Cooldown</label>
+                        <input
+                          min="0"
+                          onChange={(event) =>
+                            updateCommandPermission(index, {
+                              cooldown: Number(event.target.value) || 0,
+                            })
+                          }
+                          type="number"
+                          value={permission.cooldown}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mode-segment">
+                      {(
+                        [
+                          ["inherit", "Inherit"],
+                          ["allowlist", "Allowlist"],
+                        ] as const
+                      ).map(([mode, label]) => (
+                        <button
+                          className={permission.mode === mode ? "mode-segment-active" : ""}
+                          key={mode}
+                          onClick={() => updateCommandPermission(index, { mode })}
+                          type="button"
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="panel-note">По текущему поиску и фильтру команды не найдены.</div>
+              )}
+            </div>
+          </div>
+
+          <div className={activeCommandPanel === "groups" ? "section" : "section dashboard-section-hidden"}>
             <div className="inline-row">
-              <h3>Command Groups</h3>
+              <div>
+                <h3>Command Groups</h3>
+                <p className="muted">Группы нужны для быстрой раздачи доступов через bundle ролей.</p>
+              </div>
               <button
                 className="secondary-button"
                 onClick={() =>
@@ -641,10 +853,28 @@ export function GuildDashboardClient({ guildId, data }: Props) {
               </button>
             </div>
 
-            <div className="stack">
+            <div className="editor-card-stack">
               {commandGroups.length > 0 ? (
                 commandGroups.map((group, index) => (
-                  <div className="panel-note" key={`${group.group_id || "group"}-${index}`}>
+                  <article className="editor-card" key={`${group.group_id || "group"}-${index}`}>
+                    <div className="editor-card-head">
+                      <div>
+                        <strong>{group.name || group.group_id || `Group ${index + 1}`}</strong>
+                        <p>{group.group_id ? `Key: ${group.group_id}` : "Новая группа команд."}</p>
+                      </div>
+                      <div className="inline-row">
+                        {group.is_default ? <span className="badge success">Default</span> : null}
+                        <button
+                          className="editor-remove"
+                          onClick={() =>
+                            setCommandGroups((current) => current.filter((_, itemIndex) => itemIndex !== index))
+                          }
+                          type="button"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
                     <div className="form-grid">
                       <div className="field">
                         <label>Group key</label>
@@ -693,6 +923,7 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                         <label>Scopes</label>
                         <input
                           value={group.scopes}
+                          placeholder="moderation, tickets, premium"
                           onChange={(event) =>
                             setCommandGroups((current) =>
                               current.map((item, itemIndex) =>
@@ -703,9 +934,10 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                         />
                       </div>
                       <div className="field">
-                        <label>Color</label>
+                        <label>Accent color</label>
                         <input
                           value={group.color}
+                          placeholder="#9b7cff"
                           onChange={(event) =>
                             setCommandGroups((current) =>
                               current.map((item, itemIndex) =>
@@ -730,7 +962,7 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                         <span>Default group</span>
                       </label>
                     </div>
-                  </div>
+                  </article>
                 ))
               ) : (
                 <div className="panel-note">Группы команд пока не заданы. Они нужны для allow/deny через role bundles.</div>
@@ -738,15 +970,33 @@ export function GuildDashboardClient({ guildId, data }: Props) {
             </div>
           </div>
 
-          <div className="section">
-            <h3>Advanced Access Rules</h3>
-            <div className="stack">
-              {commandPermissions.map((permission, index) => (
-                <div className="panel-note" key={`access-${permission.command_name}`}>
-                  <div className="inline-row">
-                    <strong>/{permission.command_name}</strong>
-                    <span className="badge muted">{permission.mode}</span>
-                  </div>
+          <div className={activeCommandPanel === "access" ? "section" : "section dashboard-section-hidden"}>
+            <div className="inline-row">
+              <div>
+                <h3>Advanced Access Rules</h3>
+                <p className="muted">Точные allow/deny правила для ролей, каналов, групп и пользователей.</p>
+              </div>
+              <span className="badge muted">{commandPermissions.length} command(s)</span>
+            </div>
+            <div className="editor-card-stack">
+              {commandPermissions.length > 0 ? (
+                commandPermissions.map((permission, index) => {
+                  const registry = commandRegistryMap.get(permission.command_name);
+
+                  return (
+                  <article className="editor-card access-rule-card" key={`access-${permission.command_name}`}>
+                    <div className="editor-card-head">
+                      <div>
+                        <strong>/{permission.command_name}</strong>
+                        <p>{registry?.description || "Точные ограничения доступа для этой команды."}</p>
+                      </div>
+                      <div className="inline-row">
+                        <span className={`badge ${permission.enabled ? "success" : "warn"}`}>
+                          {permission.enabled ? "Enabled" : "Disabled"}
+                        </span>
+                        <span className="badge muted">{permission.mode}</span>
+                      </div>
+                    </div>
                   <div className="form-grid" style={{ marginTop: 12 }}>
                     <div className="field">
                       <label>Allow roles</label>
@@ -817,38 +1067,35 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                     <div className="field">
                       <label>Allow users</label>
                       <input
+                        onChange={(event) => updateCommandPermission(index, { allow_users: event.target.value })}
+                        placeholder="Discord user IDs через запятую"
                         value={permission.allow_users}
-                        onChange={(event) =>
-                          setCommandPermissions((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, allow_users: event.target.value } : item,
-                            ),
-                          )
-                        }
                       />
                     </div>
                     <div className="field">
                       <label>Deny users</label>
                       <input
+                        onChange={(event) => updateCommandPermission(index, { deny_users: event.target.value })}
+                        placeholder="Discord user IDs через запятую"
                         value={permission.deny_users}
-                        onChange={(event) =>
-                          setCommandPermissions((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, deny_users: event.target.value } : item,
-                            ),
-                          )
-                        }
                       />
                     </div>
                   </div>
-                </div>
-              ))}
+                  </article>
+                  );
+                })
+              ) : (
+                <div className="panel-note">В registry пока нет команд для настройки access rules.</div>
+              )}
             </div>
           </div>
 
-          <div className="section">
+          <div className={activeCommandPanel === "custom" ? "section" : "section dashboard-section-hidden"}>
             <div className="inline-row">
-              <h3>Custom Commands</h3>
+              <div>
+                <h3>Custom Commands</h3>
+                <p className="muted">Собственные ответы сервера, быстрые шаблоны и utility-команды.</p>
+              </div>
               <button
                 className="secondary-button"
                 onClick={() =>
@@ -870,9 +1117,31 @@ export function GuildDashboardClient({ guildId, data }: Props) {
               </button>
             </div>
 
-            <div className="stack">
-              {customCommands.map((command, index) => (
-                <div className="panel-note" key={`${command.command_name}-${index}`}>
+            <div className="editor-card-stack">
+              {customCommands.length > 0 ? (
+                customCommands.map((command, index) => (
+                  <article className="editor-card" key={`${command.command_name || "custom"}-${index}`}>
+                    <div className="editor-card-head">
+                      <div>
+                        <strong>/{command.command_name || `custom_${index + 1}`}</strong>
+                        <p>{command.description || "Новая кастомная команда без описания."}</p>
+                      </div>
+                      <div className="inline-row">
+                        <span className={`badge ${command.enabled ? "success" : "warn"}`}>
+                          {command.enabled ? "Enabled" : "Disabled"}
+                        </span>
+                        <button
+                          className="editor-remove"
+                          onClick={() =>
+                            setCustomCommands((current) => current.filter((_, itemIndex) => itemIndex !== index))
+                          }
+                          type="button"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+
                   <div className="form-grid">
                     <div className="field">
                       <label>Name</label>
@@ -904,6 +1173,7 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                       <label>Aliases</label>
                       <input
                         value={command.aliases}
+                        placeholder="alias_one, alias_two"
                         onChange={(event) =>
                           setCustomCommands((current) =>
                             current.map((item, itemIndex) =>
@@ -916,6 +1186,8 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                     <div className="field">
                       <label>Cooldown</label>
                       <input
+                        min="0"
+                        type="number"
                         value={command.cooldown}
                         onChange={(event) =>
                           setCustomCommands((current) =>
@@ -928,6 +1200,22 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                         }
                       />
                     </div>
+                  </div>
+                  <div className="checkbox-grid compact-checkbox-grid">
+                    <label className="checkbox-card">
+                      <input
+                        checked={command.enabled}
+                        onChange={() =>
+                          setCustomCommands((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, enabled: !item.enabled } : item,
+                            ),
+                          )
+                        }
+                        type="checkbox"
+                      />
+                      <span>Custom command enabled</span>
+                    </label>
                   </div>
                   <div className="field" style={{ marginTop: 12 }}>
                     <label>Response</label>
@@ -942,8 +1230,11 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                       }
                     />
                   </div>
-                </div>
-              ))}
+                  </article>
+                ))
+              ) : (
+                <div className="panel-note">Кастомных команд пока нет. Добавь первую, и она попадёт в базу и в бота.</div>
+              )}
             </div>
           </div>
 
@@ -1620,12 +1911,20 @@ export function GuildDashboardClient({ guildId, data }: Props) {
 
           <span className="badge muted">{status.premium || "Editing locally"}</span>
 
+          {!hasPremiumAccess ? (
+            <div className="panel-note premium-locked-note">
+              Premium-настройки недоступны для сохранения, пока для этого сервера не активирован premium-доступ.
+            </div>
+          ) : null}
+
+          <fieldset className="premium-fieldset" disabled={!hasPremiumAccess}>
           <div className="form-grid" style={{ marginTop: 18 }}>
             <div className="field">
-              <label>Premium active</label>
+              <label>Premium access</label>
               <select
                 value={premium.premiumActive ? "true" : "false"}
-                onChange={(event) => setPremium({ ...premium, premiumActive: event.target.value === "true" })}
+                disabled
+                onChange={() => {}}
               >
                 <option value="true">Enabled</option>
                 <option value="false">Disabled</option>
@@ -1639,21 +1938,31 @@ export function GuildDashboardClient({ guildId, data }: Props) {
 
           <div className="section">
             <h3>Enabled features</h3>
-            <div className="checkbox-grid">
+            <div className="module-card-grid premium-module-grid">
               {premiumFeatureOptions.map((feature) => (
-                <label className="checkbox-card" key={feature.key}>
-                  <input
-                    checked={premium.features.includes(feature.key)}
-                    type="checkbox"
-                    onChange={() =>
-                      setPremium({
-                        ...premium,
-                        features: toggleValue(premium.features, feature.key),
-                      })
-                    }
-                  />
-                  <span>{feature.label}</span>
-                </label>
+                <button
+                  aria-pressed={premium.features.includes(feature.key)}
+                  className={`module-toggle-card ${premium.features.includes(feature.key) ? "module-toggle-card-active" : ""}`}
+                  key={feature.key}
+                  onClick={() =>
+                    setPremium({
+                      ...premium,
+                      features: toggleValue(premium.features, feature.key),
+                    })
+                  }
+                  type="button"
+                >
+                  <div className="module-toggle-top">
+                    <span className="module-toggle-state">
+                      {premium.features.includes(feature.key) ? "Enabled" : "Disabled"}
+                    </span>
+                    <span className={`module-toggle-knob ${premium.features.includes(feature.key) ? "module-toggle-knob-active" : ""}`}>
+                      <span />
+                    </span>
+                  </div>
+                  <strong>{feature.label}</strong>
+                  <p>{feature.description}</p>
+                </button>
               ))}
             </div>
           </div>
@@ -1887,6 +2196,7 @@ export function GuildDashboardClient({ guildId, data }: Props) {
           >
             Save Premium
           </button>
+          </fieldset>
         </section>
       </div>
     </div>

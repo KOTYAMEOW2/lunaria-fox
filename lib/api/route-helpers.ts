@@ -15,7 +15,7 @@ export function routeError(error: unknown, fallbackStatus = 400) {
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
 
-    if (error.message === "Forbidden") {
+    if (error.message === "Forbidden" || error.message === "Premium required") {
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
 

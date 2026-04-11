@@ -49,7 +49,10 @@ export default async function HomePage() {
 
           <div className="hero-aside">
             <div className="fox-orbit">
-              <div className="fox-lines" />
+              <div className="fox-orbit-caption">
+                <span className="eyebrow">Lunaria Visual</span>
+                <strong>Moonlit control panel</strong>
+              </div>
             </div>
             <div className="panel">
               <span className="eyebrow">Dashboard</span>
