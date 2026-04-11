@@ -4,22 +4,15 @@ const env = {
   dashboardUrl: process.env.NEXT_PUBLIC_DASHBOARD_URL || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
   supportUrl: process.env.NEXT_PUBLIC_SUPPORT_URL || "https://discord.gg",
   inviteUrl: process.env.NEXT_PUBLIC_DISCORD_INVITE_URL || "#",
-  discordClientId: process.env.DISCORD_CLIENT_ID || "",
-  discordClientSecret: process.env.DISCORD_CLIENT_SECRET || "",
-  discordRedirectUri: process.env.DISCORD_OAUTH_REDIRECT_URI || "",
-  sessionSecret: process.env.SESSION_SECRET || "",
-  supabaseUrl: process.env.SUPABASE_URL || "",
+  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "",
+  supabasePublishableKey:
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   premiumGuilds: process.env.PREMIUM_GUILDS || "",
 };
 
-export function isDiscordConfigured() {
-  return Boolean(
-    env.discordClientId &&
-      env.discordClientSecret &&
-      env.discordRedirectUri &&
-      env.sessionSecret,
-  );
+export function isSupabaseAuthConfigured() {
+  return Boolean(env.supabaseUrl && env.supabasePublishableKey);
 }
 
 export function isSupabaseConfigured() {

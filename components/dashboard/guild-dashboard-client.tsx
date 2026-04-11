@@ -34,13 +34,13 @@ function parseCsv(value: string) {
 }
 
 function summarizeSyncState(syncState: DashboardSyncStateRow | null) {
-  if (!syncState) return "Sync table not configured.";
+  if (!syncState) return "Синхронизация ещё не настроена.";
   const status = String(syncState.status || "idle").toLowerCase();
-  if (status === "queued") return `Queued: rev ${syncState.revision || 0}`;
-  if (status === "processing") return `Applying: rev ${syncState.revision || 0}`;
-  if (status === "applied") return `Applied: rev ${syncState.bot_applied_revision || syncState.revision || 0}`;
-  if (status === "error") return syncState.last_error || "Sync error";
-  return `Idle: rev ${syncState.revision || 0}`;
+  if (status === "queued") return `В очереди: rev ${syncState.revision || 0}`;
+  if (status === "processing") return `Применяется: rev ${syncState.revision || 0}`;
+  if (status === "applied") return `Применено: rev ${syncState.bot_applied_revision || syncState.revision || 0}`;
+  if (status === "error") return syncState.last_error || "Ошибка синхронизации";
+  return `Ожидание: rev ${syncState.revision || 0}`;
 }
 
 export function GuildDashboardClient({ guildId, data }: Props) {
@@ -303,7 +303,7 @@ export function GuildDashboardClient({ guildId, data }: Props) {
         <div className="sync-orb">
           <span className={`sync-dot sync-${String(syncState?.status || "idle").toLowerCase()}`} />
           <div>
-            <strong>Bot Sync</strong>
+            <strong>Синхронизация</strong>
             <p>{summarizeSyncState(syncState)}</p>
           </div>
         </div>
@@ -323,8 +323,8 @@ export function GuildDashboardClient({ guildId, data }: Props) {
         <section className="dashboard-section panel control-plane-panel">
           <div className="dashboard-head">
             <div>
-              <span className="eyebrow">Control Plane</span>
-              <h2>Сайт управляет ботом через Supabase</h2>
+              <span className="eyebrow">Sync Status</span>
+              <h2>Настройки применяются к боту</h2>
             </div>
             <span className={`badge ${syncState?.status === "applied" ? "success" : syncState?.status === "error" ? "warn" : "muted"}`}>
               {syncState?.status || "fallback"}
@@ -333,27 +333,28 @@ export function GuildDashboardClient({ guildId, data }: Props) {
 
           <div className="control-grid">
             <div className="control-card">
-              <strong>Queued revision</strong>
+              <strong>Текущая revision</strong>
               <span>{syncState?.revision || 0}</span>
             </div>
             <div className="control-card">
-              <strong>Applied revision</strong>
+              <strong>Применённая revision</strong>
               <span>{syncState?.bot_applied_revision || 0}</span>
             </div>
             <div className="control-card">
-              <strong>Last requested</strong>
+              <strong>Последнее сохранение</strong>
               <span>{formatDate(syncState?.requested_at)}</span>
             </div>
             <div className="control-card">
-              <strong>Last applied</strong>
+              <strong>Последнее применение</strong>
               <span>{formatDate(syncState?.bot_applied_at)}</span>
             </div>
           </div>
 
           <div className="panel-note control-plane-note">
-            <strong>Current path:</strong> dashboard writes to Supabase, bot sees the revision, refreshes caches and applies runtime changes.
-            {syncState?.last_section ? ` Last section: ${syncState.last_section}.` : ""}
-            {syncState?.last_error ? ` Error: ${syncState.last_error}` : ""}
+            <strong>Как это работает:</strong> сайт сохраняет настройки, бот получает новую revision и применяет
+            изменения в работе сервера.
+            {syncState?.last_section ? ` Последний раздел: ${syncState.last_section}.` : ""}
+            {syncState?.last_error ? ` Ошибка: ${syncState.last_error}` : ""}
           </div>
         </section>
 

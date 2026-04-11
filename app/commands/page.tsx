@@ -17,10 +17,7 @@ export default async function CommandsPage() {
         <div className="page-head">
           <span className="eyebrow">Commands</span>
           <h1>Публичный каталог команд</h1>
-          <p>
-            Каталог наполняется из `commands_registry` Supabase. Если бот публикует новые slash/prefix команды, сайт
-            может показывать их без ручного обновления контента.
-          </p>
+          <p>Здесь собраны основные команды Lunaria Fox по категориям для быстрого знакомства с ботом.</p>
         </div>
 
         {groups.length > 0 ? (
@@ -51,11 +48,8 @@ export default async function CommandsPage() {
           </div>
         ) : (
           <article className="panel">
-            <h2>Команды пока не синхронизированы</h2>
-            <p>
-              В текущем состоянии база не вернула публичный реестр команд. После очередного старта бота каталог обновится
-              автоматически.
-            </p>
+            <h2>Каталог пока пуст</h2>
+            <p>Когда список команд будет опубликован, он появится здесь автоматически.</p>
           </article>
         )}
       </div>

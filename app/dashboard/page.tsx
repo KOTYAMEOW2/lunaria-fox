@@ -19,10 +19,7 @@ export default async function DashboardPage() {
         <div className="page-head">
           <span className="eyebrow">Dashboard</span>
           <h1>Выбери сервер для управления</h1>
-          <p>
-            Список строится из Discord OAuth `users/@me/guilds`, затем склеивается с `bot_guilds` в Supabase, чтобы было
-            видно, где бот уже установлен и синхронизирован.
-          </p>
+          <p>Здесь показаны серверы, где у тебя есть право управления и где можно открыть панель Lunaria Fox.</p>
         </div>
 
         <div className="guild-grid">
@@ -39,8 +36,8 @@ export default async function DashboardPage() {
               </div>
               <p style={{ marginTop: 12 }}>
                 {guild.installed
-                  ? `Доступен в Supabase. Участников: ${guild.memberCount}.`
-                  : "OAuth доступ есть, но бот ещё не отдал по нему актуальный guild index в Supabase."}
+                  ? `Бот уже доступен на сервере. Участников: ${guild.memberCount}.`
+                  : "У тебя есть доступ к серверу, но бот ещё не подключен или не обновил данные."}
               </p>
               <div className="stack-actions" style={{ marginTop: 18 }}>
                 <Link className="primary-button" href={`/dashboard/${guild.id}`}>

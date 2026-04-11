@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { assertGuildAccess } from "@/lib/auth/access";
-import { getSessionCookieName, readSessionCookie } from "@/lib/auth/session";
+import { getSession } from "@/lib/auth/session";
 
-export async function requireGuildRequest(request: NextRequest, guildId: string) {
-  const session = await readSessionCookie(request.cookies.get(getSessionCookieName())?.value);
+export async function requireGuildRequest(_request: NextRequest, guildId: string) {
+  const session = await getSession();
   await assertGuildAccess(session, guildId);
   return session;
 }

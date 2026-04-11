@@ -54,7 +54,7 @@ export function SiteHeader() {
           <span className="brand-mark" />
           <span>
             <span className="brand-title">{publicEnv.siteName}</span>
-            <span className="brand-subtitle">Discord Bot Control Plane</span>
+            <span className="brand-subtitle">Discord Bot Dashboard</span>
           </span>
         </Link>
 

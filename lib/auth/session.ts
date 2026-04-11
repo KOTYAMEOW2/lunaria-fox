@@ -1,92 +1,111 @@
-import { cookies } from "next/headers";
+import type { User } from "@supabase/supabase-js";
 
-import { env } from "@/lib/env";
+import { fetchDiscordUser } from "@/lib/auth/discord";
+import { isSupabaseAuthConfigured } from "@/lib/env";
+import { createServerSupabase } from "@/lib/supabase/server";
 import type { DiscordSession } from "@/lib/types";
 
-const SESSION_COOKIE = "lunaria_session";
-const STATE_COOKIE = "lunaria_oauth_state";
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
-
-function encodeUtf8(input: string) {
-  return new TextEncoder().encode(input);
+function readRecordValue(record: Record<string, unknown> | null | undefined, key: string) {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
-function bytesToBase64Url(bytes: Uint8Array) {
-  return Buffer.from(bytes)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
+function getDiscordIdentityRecord(user: User | null) {
+  if (!user?.identities || user.identities.length === 0) {
+    return null;
+  }
+
+  const discordIdentity = user.identities.find((identity) => identity.provider === "discord");
+  if (!discordIdentity?.identity_data || typeof discordIdentity.identity_data !== "object") {
+    return null;
+  }
+
+  return discordIdentity.identity_data as Record<string, unknown>;
 }
 
-function base64UrlToString(value: string) {
-  const padded = value
-    .replace(/-/g, "+")
-    .replace(/_/g, "/")
-    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+function buildMetadataFallback(user: User | null) {
+  const identity = getDiscordIdentityRecord(user);
+  const metadata =
+    user?.user_metadata && typeof user.user_metadata === "object"
+      ? (user.user_metadata as Record<string, unknown>)
+      : null;
 
-  return Buffer.from(padded, "base64").toString("utf8");
-}
+  const userId =
+    readRecordValue(identity, "provider_id") ||
+    readRecordValue(identity, "sub") ||
+    readRecordValue(metadata, "provider_id") ||
+    user?.id ||
+    "";
 
-async function getSigningKey() {
-  return crypto.subtle.importKey(
-    "raw",
-    encodeUtf8(env.sessionSecret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-}
+  const username =
+    readRecordValue(identity, "preferred_username") ||
+    readRecordValue(identity, "user_name") ||
+    readRecordValue(metadata, "preferred_username") ||
+    readRecordValue(metadata, "user_name") ||
+    readRecordValue(metadata, "name") ||
+    "discord-user";
 
-async function signPayload(payload: string) {
-  const key = await getSigningKey();
-  const signature = await crypto.subtle.sign("HMAC", key, encodeUtf8(payload));
-  return bytesToBase64Url(new Uint8Array(signature));
-}
+  const globalName =
+    readRecordValue(identity, "global_name") ||
+    readRecordValue(metadata, "global_name") ||
+    readRecordValue(metadata, "full_name");
 
-export async function createSessionCookie(session: DiscordSession) {
-  const payload = bytesToBase64Url(encodeUtf8(JSON.stringify(session)));
-  const signature = await signPayload(payload);
-  return `${payload}.${signature}`;
-}
+  const avatar =
+    readRecordValue(identity, "avatar_url") ||
+    readRecordValue(metadata, "avatar_url");
 
-export async function readSessionCookie(rawValue: string | undefined) {
-  if (!rawValue || !env.sessionSecret) return null;
-
-  const [payload, signature] = rawValue.split(".");
-  if (!payload || !signature) return null;
-
-  const expected = await signPayload(payload);
-  if (signature !== expected) return null;
-
-  const parsed = JSON.parse(base64UrlToString(payload)) as DiscordSession;
-  if (parsed.expiresAt <= Date.now()) return null;
-  return parsed;
+  return {
+    userId,
+    username,
+    globalName,
+    avatar,
+  };
 }
 
 export async function getSession() {
-  const cookieStore = await cookies();
-  return readSessionCookie(cookieStore.get(SESSION_COOKIE)?.value);
-}
+  if (!isSupabaseAuthConfigured()) {
+    return null;
+  }
 
-export function getSessionCookieName() {
-  return SESSION_COOKIE;
-}
+  const supabase = await createServerSupabase();
+  const [{ data: userData, error: userError }, { data: sessionData, error: sessionError }] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.auth.getSession(),
+  ]);
 
-export function getStateCookieName() {
-  return STATE_COOKIE;
-}
+  if (userError || sessionError || !userData.user) {
+    return null;
+  }
 
-export function getSessionMaxAge() {
-  return Math.floor(SESSION_TTL_MS / 1000);
-}
+  const providerToken = sessionData.session?.provider_token || null;
+  if (!providerToken) {
+    return null;
+  }
 
-export function sessionCookieOptions() {
-  return {
-    httpOnly: true,
-    sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: getSessionMaxAge(),
-  };
+  const metadataFallback = buildMetadataFallback(userData.user);
+
+  try {
+    const discordUser = await fetchDiscordUser(providerToken);
+    return {
+      userId: discordUser.id,
+      username: discordUser.username,
+      globalName: discordUser.globalName,
+      avatar: discordUser.avatar,
+      accessToken: providerToken,
+      expiresAt: (sessionData.session?.expires_at || 0) * 1000,
+    } satisfies DiscordSession;
+  } catch {
+    if (!metadataFallback.userId) {
+      return null;
+    }
+
+    return {
+      userId: metadataFallback.userId,
+      username: metadataFallback.username,
+      globalName: metadataFallback.globalName,
+      avatar: metadataFallback.avatar,
+      accessToken: providerToken,
+      expiresAt: (sessionData.session?.expires_at || 0) * 1000,
+    } satisfies DiscordSession;
+  }
 }

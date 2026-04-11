@@ -1,73 +1,67 @@
 export const featureCards = [
   {
     eyebrow: "Server Control",
-    title: "Дашборд, который реально понимает структуру бота",
-    body:
-      "Сайт строится вокруг тех же таблиц Supabase, которые уже использует Lunaria Fox: серверы, роли, каналы, команды, тикеты, VoiceMaster, модерация и брендинг.",
+    title: "Полная панель управления сервером",
+    body: "Меняй префикс, язык, роли модерации, включённые модули и базовые настройки сервера в одном месте.",
   },
   {
     eyebrow: "Moderation",
-    title: "Smart filter, логи, кейсы и appeals",
-    body:
-      "Управление модерацией не оторвано от Discord-состояния. В дашборде учитываются правила сервера, журналы, temp-ban/temp-role и все ключевые конфигурации.",
+    title: "Модерация, правила и журналы",
+    body: "Настраивай smart filter, правила сервера, каналы логов и ключевые параметры модерации без ручного редактирования кода.",
   },
   {
     eyebrow: "Operations",
-    title: "VoiceMaster, tickets и custom commands",
-    body:
-      "Те модули, которые уже есть в боте, отражены как самостоятельные панели управления, а не как набор бессвязных форм.",
+    title: "Tickets, VoiceMaster и команды",
+    body: "Управляй тикетами, голосовыми комнатами, custom commands и premium-настройками через единый дашборд.",
   },
 ];
 
 export const roadmapCards = [
-  "Discord OAuth с выбором доступных серверов",
-  "Публичный лендинг, pricing и docs",
-  "Интерактивный дашборд для конфигов бота",
-  "Подключение premium-логики поверх текущего env-based gating",
-  "Дальнейшая доводка до полного parity с JuniperBot",
+  "Вход через Discord и выбор доступного сервера",
+  "Общие настройки, команды и модули",
+  "Тикеты, VoiceMaster и брендинг",
+  "Premium-функции для кастомизации сервера",
+  "Единая панель для повседневного управления ботом",
 ];
 
 export const pricingTiers = [
   {
     name: "Free",
     price: "0 ₽",
-    lead: "Базовое управление сервером",
+    lead: "Основные функции для сервера",
     bullets: [
-      "Панель сервера и общие настройки",
-      "Custom commands, smart filter и логирование",
-      "Tickets и VoiceMaster core",
+      "Общие настройки сервера и модулей",
+      "Команды, smart filter и логирование",
+      "Tickets и базовый VoiceMaster",
     ],
   },
   {
     name: "Lunar+",
-    price: "В разработке",
-    lead: "Premium-слой поверх текущей архитектуры бота",
+    price: "Скоро",
+    lead: "Расширенные функции Lunaria Fox",
     bullets: [
-      "VoiceMaster hide/show",
-      "Voice bitrate выше 64 kbps",
-      "Будущие perks и подписки через сайт",
+      "Premium Branding и Brand Role",
+      "Analytics Pro и Server Panel Customization",
+      "Welcome / Leave Branding",
     ],
   },
 ];
 
 export const docsSections = [
   {
-    title: "Что сайт уже умеет",
+    title: "Что можно настроить",
     items: [
-      "Поднимать публичный фронт бренда Lunaria Fox.",
-      "Авторизовывать через Discord OAuth и собирать список управляемых серверов.",
-      "Работать с реальным Supabase-слоем бота по guild-centric модели данных.",
+      "Префикс, язык, роли модерации и включённые модули.",
+      "Команды, custom commands, тикеты и VoiceMaster.",
+      "Брендинг, server panel и premium-функции сервера.",
     ],
   },
   {
-    title: "Ключевые сущности",
+    title: "Как начать",
     items: [
-      "`bot_guilds` как корневая сущность сайта и дашборда.",
-      "`guild_configs`, `server_customizations`, `server_panels` для базовых настроек.",
-      "`custom_commands`, `command_permissions`, `command_groups` для command center.",
-      "`smartfilter_configs`, `guild_rules`, `guild_log_settings` для модерации.",
-      "`ticket_configs`, `ticket_panels`, `tickets` для helpdesk слоя.",
-      "`voicemaster_configs`, `voicemaster_rooms` для голосовых комнат.",
+      "Войди через Discord и выбери сервер, где у тебя есть права управления.",
+      "Открой нужный раздел дашборда и сохрани изменения.",
+      "Проверь статус синхронизации, чтобы убедиться, что бот применил новые настройки.",
     ],
   },
 ];

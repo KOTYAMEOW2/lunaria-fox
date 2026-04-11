@@ -14,11 +14,10 @@ export default async function HomePage() {
         <div className="container hero-panel">
           <div className="hero-copy">
             <span className="eyebrow">Lunaria Fox Platform</span>
-            <h1>Лендинг, дашборд и control plane для Lunaria Fox.</h1>
+            <h1>Управляй Lunaria Fox с одного дашборда.</h1>
             <p>
-              Lunaria Fox получает не декоративный сайт, а полноценную веб-платформу: брендовый фронт, Discord OAuth,
-              серверный dashboard, контроль конфигов через Supabase и связку, в которой бот реально применяет изменения
-              из панели.
+              Настраивай команды, модули, модерацию, тикеты, VoiceMaster, брендинг и premium-функции сервера без
+              ручной правки конфигов.
             </p>
             <div className="hero-actions">
               <a className="primary-button" href={buildDashboardUrl("/dashboard")}>
@@ -34,16 +33,16 @@ export default async function HomePage() {
 
             <div className="hero-stats">
               <div className="stat-card">
-                <strong>Supabase</strong>
-                <span>единая модель данных между ботом, dashboard и premium-слоем</span>
+                <strong>Commands</strong>
+                <span>управление slash-командами, custom commands и доступом</span>
               </div>
               <div className="stat-card">
-                <strong>Live Sync</strong>
-                <span>dashboard ставит sync-state, бот видит revision и применяет изменения</span>
+                <strong>Moderation</strong>
+                <span>smart filter, правила, журналы и базовые настройки модерации</span>
               </div>
               <div className="stat-card">
-                <strong>Vercel</strong>
-                <span>нативный runtime для Next.js, OAuth и dashboard</span>
+                <strong>Premium</strong>
+                <span>брендинг, brand role, server panel, welcome и analytics</span>
               </div>
             </div>
           </div>
@@ -53,12 +52,11 @@ export default async function HomePage() {
               <div className="fox-lines" />
             </div>
             <div className="panel">
-              <span className="eyebrow">Control Plane</span>
-              <h3>Сайт не витрина, а реальная точка управления</h3>
+              <span className="eyebrow">Dashboard</span>
+              <h3>Все важные настройки сервера в одном месте</h3>
               <p>
-                Контур построен по реальным модулям Lunaria Fox: moderation, tickets, VoiceMaster, server panel,
-                premium branding, brand role, smart filter и command registry. Сохранение в панели теперь сопровождается
-                отдельным sync-state, чтобы видеть применение ботом.
+                Lunaria Fox даёт отдельные разделы для команд, модерации, тикетов, VoiceMaster, брендинга и
+                premium-функций, чтобы управлять сервером без лишней путаницы.
               </p>
             </div>
           </div>
@@ -70,7 +68,7 @@ export default async function HomePage() {
           <div className="section-head">
             <div>
               <span className="eyebrow">Feature Map</span>
-              <h2>Публичный сайт и серверный дашборд в одном контуре</h2>
+              <h2>Всё, что нужно для управления сервером</h2>
             </div>
           </div>
           <div className="grid-3">
@@ -90,7 +88,7 @@ export default async function HomePage() {
           <div className="section-head">
             <div>
               <span className="eyebrow">Command Spotlight</span>
-              <h2>Живая витрина команд из `commands_registry`</h2>
+              <h2>Команды Lunaria Fox</h2>
             </div>
             <Link className="ghost-button" href="/commands">
               Full Directory
@@ -102,16 +100,13 @@ export default async function HomePage() {
                 <article className="command-card" key={command.command_name}>
                   <span className="eyebrow">{command.category || "general"}</span>
                   <h3>/{command.command_name}</h3>
-                  <p>{command.description || "Описание ещё не синхронизировано из бота."}</p>
+                  <p>{command.description || "Описание скоро появится."}</p>
                 </article>
               ))
             ) : (
               <article className="panel">
-                <h3>Команды пока не синхронизированы</h3>
-                <p>
-                  Как только бот обновит `commands_registry` в Supabase, публичный каталог автоматически наполнится без
-                  ручной правки фронта.
-                </p>
+                <h3>Каталог команд скоро появится</h3>
+                <p>После первой публикации команд здесь отобразится полный список возможностей Lunaria Fox.</p>
               </article>
             )}
           </div>
@@ -121,8 +116,8 @@ export default async function HomePage() {
       <section className="section">
         <div className="container grid-2">
           <div className="panel">
-            <span className="eyebrow">Build Direction</span>
-            <h3>Что уже заложено в архитектуру</h3>
+            <span className="eyebrow">Dashboard</span>
+            <h3>Что доступно в панели</h3>
             <div className="stack">
               {roadmapCards.map((item) => (
                 <div className="panel-note" key={item}>
@@ -135,8 +130,8 @@ export default async function HomePage() {
             <span className="eyebrow">Brand Tone</span>
             <h3>Lunaria Fox</h3>
             <p>
-              Визуально платформа держится на лунно-фиолетовой гамме, мягком холодном свечении и более хищном, чем у
-              типовых Discord-dashboard шаблонов, характере.
+              Ночной визуальный стиль, лунно-фиолетовая палитра и спокойная подача делают панель узнаваемой и не
+              похожей на типовой шаблон Discord-бота.
             </p>
             <div className="stack-actions" style={{ marginTop: 18 }}>
               <Link className="primary-button" href="/pricing">

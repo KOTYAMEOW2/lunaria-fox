@@ -34,8 +34,8 @@ export default async function GuildDashboardPage({
           <span className="eyebrow">Guild Dashboard</span>
           <h1>{data.guild?.name || `Server ${guildId}`}</h1>
           <p>
-            Это уже не просто web-panel. Дашборд пишет в те же таблицы Supabase, которыми живёт бот, и теперь держит
-            отдельный sync-state, чтобы было видно не только сохранение, но и факт применения настроек в рантайме.
+            Здесь меняются команды, модули, тикеты, VoiceMaster, брендинг и premium-настройки. После сохранения панель
+            показывает, когда бот применил новые параметры.
           </p>
         </div>
 

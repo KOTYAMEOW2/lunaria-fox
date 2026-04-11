@@ -8,9 +8,7 @@ export function SiteFooter() {
       <div className="container site-footer-row">
         <div>
           <div className="brand-title">{publicEnv.siteName}</div>
-          <p className="muted">
-            Лунно-фиолетовая платформа для управления Discord-ботом через единый Supabase-backed дашборд.
-          </p>
+          <p className="muted">Лунно-фиолетовый сайт и дашборд для настройки Lunaria Fox.</p>
         </div>
 
         <div className="header-nav">

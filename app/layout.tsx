@@ -6,9 +6,8 @@ import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: `${publicEnv.siteName} | Discord Bot Platform`,
-  description:
-    "Платформа управления Lunaria Fox: лендинг, docs, pricing и Discord dashboard для настройки бота через Supabase-backed конфиги.",
+  title: `${publicEnv.siteName} | Discord Bot Dashboard`,
+  description: "Сайт Lunaria Fox с командами, документацией и дашбордом для настройки Discord-бота.",
 };
 
 export default async function RootLayout({
@@ -20,8 +19,6 @@ export default async function RootLayout({
     <html lang="ru">
       <body>
         <div className="app-shell">
-          <div className="ambient ambient-left" />
-          <div className="ambient ambient-right" />
           <SiteHeader />
           <main>{children}</main>
           <SiteFooter />

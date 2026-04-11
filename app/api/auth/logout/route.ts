@@ -1,22 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import {
-  getSessionCookieName,
-  getStateCookieName,
-  sessionCookieOptions,
-} from "@/lib/auth/session";
+import { createServerSupabase } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
-  const response = NextResponse.redirect(new URL("/", request.nextUrl));
+  try {
+    const supabase = await createServerSupabase();
+    await supabase.auth.signOut();
+  } catch {
+    // keep redirect behavior even if auth client is not configured
+  }
 
-  response.cookies.set(getSessionCookieName(), "", {
-    ...sessionCookieOptions(),
-    maxAge: 0,
-  });
-  response.cookies.set(getStateCookieName(), "", {
-    ...sessionCookieOptions(),
-    maxAge: 0,
-  });
-
-  return response;
+  return NextResponse.redirect(new URL("/", request.nextUrl));
 }

@@ -6,11 +6,8 @@ export default function PricingPage() {
       <div className="container">
         <div className="page-head">
           <span className="eyebrow">Pricing</span>
-          <h1>Premium-слой уже предусмотрен в архитектуре</h1>
-          <p>
-            В текущем бандле premium подтверждён минимум для VoiceMaster. Сайт уже подготовлен так, чтобы вынести это в
-            отдельный billing-слой без перелома всей структуры проекта.
-          </p>
+          <h1>Планы Lunaria Fox</h1>
+          <p>Базовые функции доступны сразу, а premium даёт больше кастомизации и расширенные возможности сервера.</p>
         </div>
 
         <div className="grid-2">

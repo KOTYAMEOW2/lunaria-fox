@@ -1,50 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import {
-  exchangeDiscordCode,
-  fetchDiscordUser,
-} from "@/lib/auth/discord";
-import {
-  createSessionCookie,
-  getSessionCookieName,
-  getStateCookieName,
-  getSessionMaxAge,
-  sessionCookieOptions,
-} from "@/lib/auth/session";
+import { createServerSupabase } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
   const url = request.nextUrl;
   const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const expectedState = request.cookies.get(getStateCookieName())?.value;
+  const nextPath = url.searchParams.get("next");
+  const next = nextPath && nextPath.startsWith("/") ? nextPath : "/dashboard";
 
-  if (!code || !state || !expectedState || state !== expectedState) {
-    return NextResponse.redirect(new URL("/dashboard", url));
+  if (!code) {
+    return NextResponse.redirect(new URL(next, url));
   }
 
   try {
-    const token = await exchangeDiscordCode(code);
-    const user = await fetchDiscordUser(token.access_token);
-    const cookieValue = await createSessionCookie({
-      userId: user.id,
-      username: user.username,
-      globalName: user.globalName,
-      avatar: user.avatar,
-      accessToken: token.access_token,
-      expiresAt: Date.now() + token.expires_in * 1000,
-    });
+    const supabase = await createServerSupabase();
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-    const response = NextResponse.redirect(new URL("/dashboard", url));
-    response.cookies.set(getSessionCookieName(), cookieValue, {
-      ...sessionCookieOptions(),
-      maxAge: getSessionMaxAge(),
-    });
-    response.cookies.set(getStateCookieName(), "", {
-      ...sessionCookieOptions(),
-      maxAge: 0,
-    });
-    return response;
+    if (error) {
+      return NextResponse.redirect(new URL("/dashboard?auth_error=oauth_callback", url));
+    }
+
+    return NextResponse.redirect(new URL(next, url));
   } catch {
-    return NextResponse.redirect(new URL("/dashboard", url));
+    return NextResponse.redirect(new URL("/dashboard?auth_error=oauth_callback", url));
   }
 }

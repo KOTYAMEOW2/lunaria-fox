@@ -19,10 +19,7 @@ export default function FeaturesPage() {
         <div className="page-head">
           <span className="eyebrow">Features</span>
           <h1>Что именно получает Lunaria Fox</h1>
-          <p>
-            Не один landing page, а полноценный сайт с дашбордом, который повторяет направление JuniperBot, но строится
-            под реальный текущий backend Lunaria Fox.
-          </p>
+          <p>Сайт, каталог команд и полноценный дашборд для ежедневной настройки бота и сервера.</p>
         </div>
 
         <div className="grid-3">

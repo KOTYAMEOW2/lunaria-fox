@@ -1,20 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { buildDiscordAuthorizeUrl } from "@/lib/auth/discord";
-import {
-  getStateCookieName,
-  sessionCookieOptions,
-} from "@/lib/auth/session";
-import { isDiscordConfigured } from "@/lib/env";
+import { isSupabaseAuthConfigured } from "@/lib/env";
+import { createServerSupabase } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
-  if (!isDiscordConfigured()) {
+  if (!isSupabaseAuthConfigured()) {
     return NextResponse.redirect(new URL("/docs", request.nextUrl));
   }
 
-  const state = crypto.randomUUID();
-  const response = NextResponse.redirect(buildDiscordAuthorizeUrl(state));
+  const nextPath = request.nextUrl.searchParams.get("next");
+  const next = nextPath && nextPath.startsWith("/") ? nextPath : "/dashboard";
+  const callbackUrl = new URL("/api/auth/discord/callback", request.nextUrl.origin);
+  callbackUrl.searchParams.set("next", next);
 
-  response.cookies.set(getStateCookieName(), state, sessionCookieOptions());
-  return response;
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "discord",
+    options: {
+      redirectTo: callbackUrl.toString(),
+      scopes: "identify guilds",
+    },
+  });
+
+  if (error || !data.url) {
+    return NextResponse.redirect(new URL("/dashboard?auth_error=oauth_start", request.nextUrl));
+  }
+
+  return NextResponse.redirect(data.url);
 }

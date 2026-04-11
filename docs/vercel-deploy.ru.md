@@ -2,19 +2,21 @@
 
 ## Почему Vercel
 
-Текущий сайт уже является full-stack `Next.js` приложением:
+Текущий сайт является `Next.js` приложением с серверными route handlers и дашбордом.
 
-- Discord OAuth
+В проекте используются:
+
 - `app/api/auth/*`
 - `app/api/dashboard/*`
 - `/dashboard`
 - `/dashboard/[guildId]`
+- `Supabase Auth` для входа через Discord
 
-Для такого проекта Vercel подходит напрямую как обычный `Next.js` deployment с серверными route handlers и dashboard.
+Для такой схемы Vercel подходит напрямую как обычный deployment `Next.js` проекта.
 
-## Что нужно в Vercel
+## Что указать в Vercel
 
-1. Импортировать GitHub-репозиторий в Vercel.
+1. Импортировать репозиторий в Vercel
 2. Framework preset: `Next.js`
 3. Root Directory: корень репозитория
 4. Build Command:
@@ -23,12 +25,10 @@
 next build --webpack
 ```
 
-5. Output Directory не указывать вручную.
-6. Install Command можно оставить по умолчанию.
+5. Output Directory не указывать вручную
+6. Install Command оставить по умолчанию
 
-## Переменные окружения
-
-Все значения берутся по [docs/env-setup.ru.md](C:\Users\maksi\OneDrive\Документы\New project\docs\env-setup.ru.md).
+## Какие env нужны в Vercel
 
 Минимально нужны:
 
@@ -36,30 +36,32 @@ next build --webpack
 - `NEXT_PUBLIC_DASHBOARD_URL`
 - `NEXT_PUBLIC_SUPPORT_URL`
 - `NEXT_PUBLIC_DISCORD_INVITE_URL`
-- `DISCORD_CLIENT_ID`
-- `DISCORD_CLIENT_SECRET`
-- `DISCORD_OAUTH_REDIRECT_URI`
-- `SESSION_SECRET`
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-## Самое важное
+Подробности смотри в [docs/env-setup.ru.md](C:\Users\maksi\OneDrive\Документы\New project\docs\env-setup.ru.md).
 
-`DISCORD_OAUTH_REDIRECT_URI` должен совпасть:
+## Что важно для авторизации
 
-- в `.env`
-- в настройках Vercel env
-- в Discord Developer Portal -> OAuth2 -> Redirects
+У сайта callback не в Discord напрямую, а через Supabase Auth.
 
-Пример:
+В Discord Developer Portal redirect URL должен быть:
+
+```text
+https://hqggzsfcswtqgwejblxe.supabase.co/auth/v1/callback
+```
+
+А в Supabase redirect URLs должны быть callback-адреса самого сайта, например:
 
 ```text
 https://lunaria-fox.vercel.app/api/auth/discord/callback
 ```
 
-## После первого деплоя
+## Что поставить после первого деплоя
 
-Если Vercel дал адрес:
+Если Vercel выдал адрес:
 
 ```text
 https://lunaria-fox.vercel.app
@@ -69,6 +71,9 @@ https://lunaria-fox.vercel.app
 
 - `NEXT_PUBLIC_SITE_URL=https://lunaria-fox.vercel.app`
 - `NEXT_PUBLIC_DASHBOARD_URL=https://lunaria-fox.vercel.app`
-- `DISCORD_OAUTH_REDIRECT_URI=https://lunaria-fox.vercel.app/api/auth/discord/callback`
+- `NEXT_PUBLIC_SUPABASE_URL=<твой Supabase URL>`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<твой publishable key>`
+- `SUPABASE_URL=<тот же Supabase URL>`
+- `SUPABASE_SERVICE_ROLE_KEY=<service role key>`
 
-Потом обновляешь Redirect URL в Discord Developer Portal и redeploy.
+После изменения env сделай redeploy.
