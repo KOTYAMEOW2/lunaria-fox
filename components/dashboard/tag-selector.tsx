@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 export type TagSelectorOption = {
   value: string;
@@ -33,12 +33,19 @@ export function TagSelector({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const deferredQuery = useDeferredValue(query);
 
   const selectedOptions = useMemo(
     () => options.filter((option) => selected.includes(option.value)),
     [options, selected],
   );
+  const selectedPreview = useMemo(() => {
+    if (selectedOptions.length === 0) return "Пока ничего не выбрано";
+    if (selectedOptions.length === 1) return selectedOptions[0].label;
+    if (selectedOptions.length === 2) return `${selectedOptions[0].label}, ${selectedOptions[1].label}`;
+    return `${selectedOptions[0].label}, ${selectedOptions[1].label} и ещё ${selectedOptions.length - 2}`;
+  }, [selectedOptions]);
 
   const filteredOptions = useMemo(() => {
     const normalized = deferredQuery.trim().toLowerCase();
@@ -50,15 +57,37 @@ export function TagSelector({
     });
   }, [deferredQuery, options]);
 
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [open]);
+
   return (
-    <div className={`tag-selector ${open ? "tag-selector-open" : ""}`}>
+    <div className={`tag-selector ${open ? "tag-selector-open" : ""}`} ref={rootRef}>
       <button
+        aria-expanded={open}
         className="tag-selector-trigger"
         onClick={() => setOpen((current) => !current)}
         type="button"
       >
-        <span>{placeholder}</span>
-        <strong>{selected.length > 0 ? `${selected.length} выбрано` : "Выбрать"}</strong>
+        <div className="tag-selector-trigger-copy">
+          <span className="tag-selector-trigger-title">{placeholder}</span>
+          <small className="tag-selector-trigger-summary">{selectedPreview}</small>
+        </div>
+        <div className="tag-selector-trigger-meta">
+          <strong>{selected.length > 0 ? `${selected.length} выбрано` : "Открыть"}</strong>
+          <span className={`tag-selector-chevron ${open ? "tag-selector-chevron-open" : ""}`}>⌄</span>
+        </div>
       </button>
 
       {selectedOptions.length > 0 ? (

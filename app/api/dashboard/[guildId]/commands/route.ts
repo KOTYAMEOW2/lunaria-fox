@@ -35,10 +35,18 @@ const schema = z.object({
     z.object({
       command_name: z.string(),
       description: z.string(),
+      trigger_type: z.string(),
+      response_mode: z.string(),
       response_text: z.string(),
+      embed: z.record(z.string(), z.unknown()).nullable().optional(),
       aliases: z.array(z.string()),
       enabled: z.boolean(),
       cooldown: z.number(),
+      allowed_roles: z.array(z.string()).optional(),
+      denied_roles: z.array(z.string()).optional(),
+      allowed_channels: z.array(z.string()).optional(),
+      denied_channels: z.array(z.string()).optional(),
+      meta: z.record(z.string(), z.unknown()).optional(),
     }),
   ),
 });

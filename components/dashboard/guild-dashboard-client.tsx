@@ -25,6 +25,27 @@ type OverviewModuleKey = "moderation" | "lunarialog" | "tickets" | "voicemaster"
 type VoiceToggleKey = "allowOwnerRename" | "allowOwnerLimit" | "allowOwnerLock" | "allowOwnerHide";
 type PremiumBrandToggleKey = "brandRoleHoist" | "brandRoleMentionable";
 type PremiumWelcomeToggleKey = "welcomeEnabled" | "leaveEnabled" | "sendDm";
+type CustomCommandResponseMode = "text" | "embed";
+
+type CustomCommandEditorState = {
+  command_name: string;
+  description: string;
+  trigger_type: "prefix";
+  response_mode: CustomCommandResponseMode;
+  response_text: string;
+  embed_title: string;
+  embed_description: string;
+  embed_color: string;
+  aliases: string;
+  enabled: boolean;
+  cooldown: number;
+  allowed_roles: string[];
+  denied_roles: string[];
+  allowed_channels: string[];
+  denied_channels: string[];
+  ephemeral: boolean;
+  delete_trigger: boolean;
+};
 
 const dashboardSections: Array<{ id: DashboardSectionId; label: string }> = [
   { id: "overview", label: "Overview" },
@@ -164,6 +185,45 @@ function parseCsv(value: string) {
     .filter(Boolean);
 }
 
+function normalizeCommandName(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}_-]+/gu, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function createEmptyCustomCommand(): CustomCommandEditorState {
+  return {
+    command_name: "",
+    description: "",
+    trigger_type: "prefix",
+    response_mode: "text",
+    response_text: "",
+    embed_title: "",
+    embed_description: "",
+    embed_color: "#a77cff",
+    aliases: "",
+    enabled: true,
+    cooldown: 0,
+    allowed_roles: [],
+    denied_roles: [],
+    allowed_channels: [],
+    denied_channels: [],
+    ephemeral: false,
+    delete_trigger: false,
+  };
+}
+
+function buildCustomCommandPreview(prefix: string, commandName: string, aliases: string) {
+  const normalizedPrefix = prefix || ".";
+  const name = normalizeCommandName(commandName);
+  const aliasList = parseCsv(aliases);
+  if (!name) return `${normalizedPrefix}your_command`;
+  if (aliasList.length === 0) return `${normalizedPrefix}${name}`;
+  return `${normalizedPrefix}${name} / ${aliasList.slice(0, 2).map((alias) => `${normalizedPrefix}${normalizeCommandName(alias)}`).join(" / ")}`;
+}
+
 function summarizeSyncState(syncState: DashboardSyncStateRow | null) {
   if (!syncState) return "Синхронизация ещё не настроена.";
   const status = String(syncState.status || "idle").toLowerCase();
@@ -229,15 +289,37 @@ export function GuildDashboardClient({ guildId, data }: Props) {
     })),
   );
 
-  const [customCommands, setCustomCommands] = useState(
-    (data.customCommands || []).map((command) => ({
-      command_name: command.command_name,
-      description: command.description || "",
-      response_text: command.response_text || "",
-      aliases: (command.aliases || []).join(", "),
-      enabled: command.enabled ?? true,
-      cooldown: command.cooldown ?? 0,
-    })),
+  const [customCommands, setCustomCommands] = useState<CustomCommandEditorState[]>(
+    (data.customCommands || []).map((command) => {
+      const embed =
+        command.embed && typeof command.embed === "object" && !Array.isArray(command.embed)
+          ? (command.embed as Record<string, unknown>)
+          : {};
+      const meta =
+        command.meta && typeof command.meta === "object" && !Array.isArray(command.meta)
+          ? (command.meta as Record<string, unknown>)
+          : {};
+
+      return {
+        command_name: command.command_name,
+        description: command.description || "",
+        trigger_type: "prefix",
+        response_mode: command.response_mode === "embed" ? "embed" : "text",
+        response_text: command.response_text || "",
+        embed_title: String(embed.title || ""),
+        embed_description: String(embed.description || command.response_text || ""),
+        embed_color: String(embed.color || "#a77cff"),
+        aliases: (command.aliases || []).join(", "),
+        enabled: command.enabled ?? true,
+        cooldown: command.cooldown ?? 0,
+        allowed_roles: command.allowed_roles || [],
+        denied_roles: command.denied_roles || [],
+        allowed_channels: command.allowed_channels || [],
+        denied_channels: command.denied_channels || [],
+        ephemeral: meta.ephemeral === true,
+        delete_trigger: meta.delete_trigger === true,
+      };
+    }),
   );
 
   const [moderation, setModeration] = useState({
@@ -546,6 +628,15 @@ export function GuildDashboardClient({ guildId, data }: Props) {
     patch: Partial<(typeof commandPermissions)[number]>,
   ) {
     setCommandPermissions((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
+    );
+  }
+
+  function updateCustomCommand(
+    index: number,
+    patch: Partial<CustomCommandEditorState>,
+  ) {
+    setCustomCommands((current) =>
       current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
     );
   }
@@ -1016,20 +1107,27 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                           }
                         />
                       </div>
-                      <label className="checkbox-card">
-                        <input
-                          checked={group.is_default}
-                          type="checkbox"
-                          onChange={() =>
-                            setCommandGroups((current) =>
-                              current.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, is_default: !item.is_default } : item,
-                              ),
-                            )
-                          }
-                        />
-                        <span>Default group</span>
-                      </label>
+                      <button
+                        aria-pressed={group.is_default}
+                        className={`module-toggle-card command-inline-toggle ${group.is_default ? "module-toggle-card-active" : ""}`}
+                        onClick={() =>
+                          setCommandGroups((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, is_default: !item.is_default } : item,
+                            ),
+                          )
+                        }
+                        type="button"
+                      >
+                        <div className="module-toggle-top">
+                          <span className="module-toggle-state">{group.is_default ? "Enabled" : "Disabled"}</span>
+                          <span className={`module-toggle-knob ${group.is_default ? "module-toggle-knob-active" : ""}`}>
+                            <span />
+                          </span>
+                        </div>
+                        <strong>Default Group</strong>
+                        <p>Используется как базовая группа для server access presets.</p>
+                      </button>
                     </div>
                   </article>
                 ))
@@ -1163,26 +1261,17 @@ export function GuildDashboardClient({ guildId, data }: Props) {
             <div className="inline-row">
               <div>
                 <h3>Custom Commands</h3>
-                <p className="muted">Собственные ответы сервера, быстрые шаблоны и utility-команды.</p>
+                <p className="muted">
+                  Здесь создаются именно custom commands сервера. Сейчас они работают как команды по префиксу, например{" "}
+                  <code>{overview.prefix}rules</code> или <code>{overview.prefix}faq</code>.
+                </p>
               </div>
               <button
                 className="secondary-button"
-                onClick={() =>
-                  setCustomCommands((current) => [
-                    ...current,
-                    {
-                      command_name: "",
-                      description: "",
-                      response_text: "",
-                      aliases: "",
-                      enabled: true,
-                      cooldown: 0,
-                    },
-                  ])
-                }
+                onClick={() => setCustomCommands((current) => [...current, createEmptyCustomCommand()])}
                 type="button"
               >
-                Add command
+                Add custom command
               </button>
             </div>
 
@@ -1192,13 +1281,18 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                   <article className="editor-card" key={`${command.command_name || "custom"}-${index}`}>
                     <div className="editor-card-head">
                       <div>
-                        <strong>/{command.command_name || `custom_${index + 1}`}</strong>
-                        <p>{command.description || "Новая кастомная команда без описания."}</p>
+                        <strong>{buildCustomCommandPreview(overview.prefix, command.command_name, command.aliases)}</strong>
+                        <p>
+                          {command.description || "Новая кастомная команда без описания."}
+                          {" "}
+                          {command.response_mode === "embed" ? "Ответ отправится embed-сообщением." : "Ответ отправится обычным текстом."}
+                        </p>
                       </div>
                       <div className="inline-row">
                         <span className={`badge ${command.enabled ? "success" : "warn"}`}>
                           {command.enabled ? "Enabled" : "Disabled"}
                         </span>
+                        <span className="badge muted">prefix</span>
                         <button
                           className="editor-remove"
                           onClick={() =>
@@ -1211,94 +1305,222 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                       </div>
                     </div>
 
-                  <div className="form-grid">
-                    <div className="field">
-                      <label>Name</label>
-                      <input
-                        value={command.command_name}
-                        onChange={(event) =>
-                          setCustomCommands((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, command_name: event.target.value } : item,
-                            ),
-                          )
-                        }
-                      />
+                    <div className="form-grid">
+                      <div className="field">
+                        <label>Command name</label>
+                        <input
+                          placeholder="rules"
+                          value={command.command_name}
+                          onChange={(event) =>
+                            updateCustomCommand(index, { command_name: normalizeCommandName(event.target.value) })
+                          }
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Description</label>
+                        <input
+                          placeholder="Краткое описание команды"
+                          value={command.description}
+                          onChange={(event) => updateCustomCommand(index, { description: event.target.value })}
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Aliases</label>
+                        <input
+                          placeholder="faq, info, правила"
+                          value={command.aliases}
+                          onChange={(event) => updateCustomCommand(index, { aliases: event.target.value })}
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Cooldown</label>
+                        <input
+                          min="0"
+                          type="number"
+                          value={command.cooldown}
+                          onChange={(event) => updateCustomCommand(index, { cooldown: Number(event.target.value) || 0 })}
+                        />
+                      </div>
                     </div>
-                    <div className="field">
-                      <label>Description</label>
-                      <input
-                        value={command.description}
-                        onChange={(event) =>
-                          setCustomCommands((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, description: event.target.value } : item,
-                            ),
-                          )
-                        }
-                      />
+
+                    <div className="section command-custom-section">
+                      <div className="inline-row">
+                        <h3>How it will work</h3>
+                        <span className="badge muted">{buildCustomCommandPreview(overview.prefix, command.command_name, command.aliases)}</span>
+                      </div>
+                      <div className="panel-note command-panel-note">
+                        Бот вызовет эту команду через текущий префикс сервера. Пример:{" "}
+                        <strong>{buildCustomCommandPreview(overview.prefix, command.command_name, command.aliases)}</strong>
+                      </div>
+                      <div className="form-grid">
+                        <div className="field">
+                          <label>Trigger type</label>
+                          <select value={command.trigger_type} disabled onChange={() => {}}>
+                            <option value="prefix">Prefix command</option>
+                          </select>
+                        </div>
+                        <div className="field">
+                          <label>Response mode</label>
+                          <select
+                            value={command.response_mode}
+                            onChange={(event) =>
+                              updateCustomCommand(index, {
+                                response_mode: event.target.value === "embed" ? "embed" : "text",
+                              })
+                            }
+                          >
+                            <option value="text">Text message</option>
+                            <option value="embed">Embed message</option>
+                          </select>
+                        </div>
+                      </div>
                     </div>
-                    <div className="field">
-                      <label>Aliases</label>
-                      <input
-                        value={command.aliases}
-                        placeholder="alias_one, alias_two"
-                        onChange={(event) =>
-                          setCustomCommands((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, aliases: event.target.value } : item,
-                            ),
-                          )
-                        }
-                      />
+
+                    <div className="module-card-grid compact-module-grid" style={{ marginTop: 14 }}>
+                      <button
+                        aria-pressed={command.enabled}
+                        className={`module-toggle-card ${command.enabled ? "module-toggle-card-active" : ""}`}
+                        onClick={() => updateCustomCommand(index, { enabled: !command.enabled })}
+                        type="button"
+                      >
+                        <div className="module-toggle-top">
+                          <span className="module-toggle-state">{command.enabled ? "Enabled" : "Disabled"}</span>
+                          <span className={`module-toggle-knob ${command.enabled ? "module-toggle-knob-active" : ""}`}>
+                            <span />
+                          </span>
+                        </div>
+                        <strong>Command Status</strong>
+                        <p>Включает или выключает кастомную команду без её удаления.</p>
+                      </button>
+                      <button
+                        aria-pressed={command.ephemeral}
+                        className={`module-toggle-card ${command.ephemeral ? "module-toggle-card-active" : ""}`}
+                        disabled={command.response_mode !== "embed"}
+                        onClick={() => updateCustomCommand(index, { ephemeral: !command.ephemeral })}
+                        type="button"
+                      >
+                        <div className="module-toggle-top">
+                          <span className="module-toggle-state">{command.ephemeral ? "Enabled" : "Disabled"}</span>
+                          <span className={`module-toggle-knob ${command.ephemeral ? "module-toggle-knob-active" : ""}`}>
+                            <span />
+                          </span>
+                        </div>
+                        <strong>Ephemeral Reply</strong>
+                        <p>Актуально только для embed-ответов через interaction flow.</p>
+                      </button>
+                      <button
+                        aria-pressed={command.delete_trigger}
+                        className={`module-toggle-card ${command.delete_trigger ? "module-toggle-card-active" : ""}`}
+                        onClick={() => updateCustomCommand(index, { delete_trigger: !command.delete_trigger })}
+                        type="button"
+                      >
+                        <div className="module-toggle-top">
+                          <span className="module-toggle-state">{command.delete_trigger ? "Enabled" : "Disabled"}</span>
+                          <span className={`module-toggle-knob ${command.delete_trigger ? "module-toggle-knob-active" : ""}`}>
+                            <span />
+                          </span>
+                        </div>
+                        <strong>Delete Trigger Message</strong>
+                        <p>После ответа бот может удалить исходное сообщение с префикс-командой.</p>
+                      </button>
                     </div>
-                    <div className="field">
-                      <label>Cooldown</label>
-                      <input
-                        min="0"
-                        type="number"
-                        value={command.cooldown}
-                        onChange={(event) =>
-                          setCustomCommands((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index
-                                ? { ...item, cooldown: Number(event.target.value) || 0 }
-                                : item,
-                            ),
-                          )
-                        }
-                      />
+
+                    {command.response_mode === "text" ? (
+                      <div className="field" style={{ marginTop: 14 }}>
+                        <label>Text response</label>
+                        <textarea
+                          placeholder="Например: Привет, {user}! Добро пожаловать на {server}."
+                          value={command.response_text}
+                          onChange={(event) => updateCustomCommand(index, { response_text: event.target.value })}
+                        />
+                      </div>
+                    ) : (
+                      <div className="section command-custom-section">
+                        <div className="inline-row">
+                          <h3>Embed builder</h3>
+                          <span className="badge muted">Bot uses response_mode=embed</span>
+                        </div>
+                        <div className="form-grid">
+                          <div className="field">
+                            <label>Embed title</label>
+                            <input
+                              placeholder="Server rules"
+                              value={command.embed_title}
+                              onChange={(event) => updateCustomCommand(index, { embed_title: event.target.value })}
+                            />
+                          </div>
+                          <div className="field">
+                            <label>Embed color</label>
+                            <input
+                              placeholder="#a77cff"
+                              value={command.embed_color}
+                              onChange={(event) => updateCustomCommand(index, { embed_color: event.target.value })}
+                            />
+                          </div>
+                        </div>
+                        <div className="field">
+                          <label>Embed description</label>
+                          <textarea
+                            placeholder="Поддерживаются переменные вроде {user}, {server}, {channel}, {args}."
+                            value={command.embed_description}
+                            onChange={(event) => updateCustomCommand(index, { embed_description: event.target.value })}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="section command-custom-section">
+                      <div className="inline-row">
+                        <h3>Access limits</h3>
+                        <span className="badge muted">Optional</span>
+                      </div>
+                      <div className="form-grid">
+                        <div className="field">
+                          <label>Allow roles</label>
+                          <TagSelector
+                            emptyText="Роли не найдены."
+                            onChange={(next) => updateCustomCommand(index, { allowed_roles: next })}
+                            options={roleOptions}
+                            placeholder="Разрешить роли для команды"
+                            searchPlaceholder="Найти роль"
+                            selected={command.allowed_roles}
+                          />
+                        </div>
+                        <div className="field">
+                          <label>Deny roles</label>
+                          <TagSelector
+                            emptyText="Роли не найдены."
+                            onChange={(next) => updateCustomCommand(index, { denied_roles: next })}
+                            options={roleOptions}
+                            placeholder="Запретить роли для команды"
+                            searchPlaceholder="Найти роль"
+                            selected={command.denied_roles}
+                          />
+                        </div>
+                        <div className="field">
+                          <label>Allow channels</label>
+                          <TagSelector
+                            emptyText="Каналы не найдены."
+                            onChange={(next) => updateCustomCommand(index, { allowed_channels: next })}
+                            options={channelOptions}
+                            placeholder="Разрешить каналы"
+                            searchPlaceholder="Найти канал"
+                            selected={command.allowed_channels}
+                          />
+                        </div>
+                        <div className="field">
+                          <label>Deny channels</label>
+                          <TagSelector
+                            emptyText="Каналы не найдены."
+                            onChange={(next) => updateCustomCommand(index, { denied_channels: next })}
+                            options={channelOptions}
+                            placeholder="Запретить каналы"
+                            searchPlaceholder="Найти канал"
+                            selected={command.denied_channels}
+                          />
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="checkbox-grid compact-checkbox-grid">
-                    <label className="checkbox-card">
-                      <input
-                        checked={command.enabled}
-                        onChange={() =>
-                          setCustomCommands((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, enabled: !item.enabled } : item,
-                            ),
-                          )
-                        }
-                        type="checkbox"
-                      />
-                      <span>Custom command enabled</span>
-                    </label>
-                  </div>
-                  <div className="field" style={{ marginTop: 12 }}>
-                    <label>Response</label>
-                    <textarea
-                      value={command.response_text}
-                      onChange={(event) =>
-                        setCustomCommands((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index ? { ...item, response_text: event.target.value } : item,
-                          ),
-                        )
-                      }
-                    />
-                  </div>
                   </article>
                 ))
               ) : (
@@ -1329,8 +1551,31 @@ export function GuildDashboardClient({ guildId, data }: Props) {
                   color: group.color || null,
                 })),
                 customCommands: customCommands.map((command) => ({
-                  ...command,
+                  command_name: normalizeCommandName(command.command_name),
+                  description: command.description,
+                  trigger_type: "prefix",
+                  response_mode: command.response_mode,
+                  response_text:
+                    command.response_mode === "embed" ? command.embed_description : command.response_text,
+                  embed:
+                    command.response_mode === "embed"
+                      ? {
+                          title: command.embed_title || null,
+                          description: command.embed_description,
+                          color: command.embed_color || "#a77cff",
+                        }
+                      : null,
                   aliases: parseCsv(command.aliases),
+                  enabled: command.enabled,
+                  cooldown: command.cooldown,
+                  allowed_roles: command.allowed_roles,
+                  denied_roles: command.denied_roles,
+                  allowed_channels: command.allowed_channels,
+                  denied_channels: command.denied_channels,
+                  meta: {
+                    ephemeral: command.ephemeral,
+                    delete_trigger: command.delete_trigger,
+                  },
                 })),
               })
             }

@@ -37,10 +37,18 @@ type CommandGroupPayload = {
 type CustomCommandPayload = {
   command_name: string;
   description: string;
+  trigger_type: string;
+  response_mode: string;
   response_text: string;
+  embed?: Record<string, unknown> | null;
   aliases: string[];
   enabled: boolean;
   cooldown: number;
+  allowed_roles?: string[];
+  denied_roles?: string[];
+  allowed_channels?: string[];
+  denied_channels?: string[];
+  meta?: Record<string, unknown>;
 };
 
 function asErrorMessage(error: unknown) {
@@ -362,12 +370,18 @@ export async function saveCommandSettings(
       guild_id: guildId,
       command_name: command.command_name.toLowerCase(),
       description: command.description,
-      trigger_type: "prefix",
+      trigger_type: command.trigger_type === "prefix" ? "prefix" : "prefix",
       enabled: command.enabled,
-      response_mode: "text",
+      response_mode: command.response_mode === "embed" ? "embed" : "text",
       response_text: command.response_text,
+      embed: command.embed && typeof command.embed === "object" ? command.embed : {},
       aliases: dedupeStrings(command.aliases),
       cooldown: command.cooldown,
+      allowed_roles: dedupeStrings(command.allowed_roles),
+      denied_roles: dedupeStrings(command.denied_roles),
+      allowed_channels: dedupeStrings(command.allowed_channels),
+      denied_channels: dedupeStrings(command.denied_channels),
+      meta: command.meta && typeof command.meta === "object" ? command.meta : {},
       updated_at: now,
     }));
 

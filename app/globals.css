@@ -1071,8 +1071,14 @@ button {
 }
 
 .tag-selector {
+  position: relative;
   display: grid;
   gap: 10px;
+  z-index: 1;
+}
+
+.tag-selector-open {
+  z-index: 18;
 }
 
 .tag-selector-trigger {
@@ -1088,6 +1094,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  position: relative;
   transition:
     border-color 180ms ease,
     transform 180ms ease,
@@ -1100,15 +1107,53 @@ button {
   box-shadow: 0 14px 28px rgba(8, 6, 15, 0.26);
 }
 
+.tag-selector-trigger-copy {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+
+.tag-selector-trigger-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tag-selector-trigger-summary {
+  color: var(--text-soft);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.tag-selector-trigger-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 .tag-selector-trigger strong {
   color: var(--primary-strong);
   font-weight: 600;
+}
+
+.tag-selector-chevron {
+  color: var(--text-soft);
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.tag-selector-chevron-open {
+  transform: rotate(180deg);
+  color: var(--primary-strong);
 }
 
 .tag-selector-picked {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  position: relative;
+  z-index: 1;
 }
 
 .tag-pill {
@@ -1129,6 +1174,10 @@ button {
 }
 
 .tag-selector-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  right: 0;
   display: grid;
   gap: 12px;
   padding: 14px;
@@ -1138,6 +1187,7 @@ button {
     linear-gradient(180deg, rgba(15, 11, 28, 0.98), rgba(9, 7, 17, 0.98)),
     rgba(255, 255, 255, 0.02);
   box-shadow: 0 18px 36px rgba(5, 4, 10, 0.24);
+  z-index: 24;
 }
 
 .tag-selector-options {
@@ -1203,6 +1253,7 @@ button {
   gap: 14px;
 }
 
+.compact-module-grid,
 .premium-module-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -1226,6 +1277,10 @@ button {
     background 160ms ease;
 }
 
+.command-inline-toggle {
+  min-height: 100%;
+}
+
 .module-toggle-card:hover {
   transform: translateY(-2px);
   border-color: rgba(167, 124, 255, 0.24);
@@ -1240,6 +1295,10 @@ button {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.55;
+}
+
+.command-custom-section {
+  margin-top: 14px;
 }
 
 .module-toggle-card-active {
