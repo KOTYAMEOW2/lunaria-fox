@@ -4,11 +4,55 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
 import { getManagedGuilds } from "@/lib/data/dashboard-read";
 
-export default async function DashboardPage() {
+function getAuthMessage(code: string | undefined) {
+  if (code === "missing_supabase_auth") {
+    return "На сайте не хватает настроек Supabase Auth. Проверь переменные Vercel и Discord provider в Supabase.";
+  }
+
+  if (code === "oauth_start") {
+    return "Не удалось начать вход через Discord. Проверь настройки Supabase Auth и redirect URLs.";
+  }
+
+  if (code === "oauth_callback") {
+    return "Discord вернул callback, но сессия не создалась. Обычно это проблема в redirect URLs или Discord provider.";
+  }
+
+  return null;
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ auth_error?: string }>;
+}) {
   const session = await getSession();
+  const resolvedSearchParams = (await searchParams) || {};
+  const authMessage = getAuthMessage(resolvedSearchParams.auth_error);
+
+  if (!session && !authMessage) {
+    redirect("/api/auth/discord/login");
+  }
 
   if (!session) {
-    redirect("/api/auth/discord/login");
+    return (
+      <section className="page-shell">
+        <div className="container">
+          <div className="page-head">
+            <span className="eyebrow">Dashboard</span>
+            <h1>Вход в панель</h1>
+            <p className="page-alert">{authMessage || "Нужно войти через Discord."}</p>
+          </div>
+          <div className="stack-actions">
+            <Link className="primary-button" href="/api/auth/discord/login">
+              Login with Discord
+            </Link>
+            <Link className="ghost-button" href="/docs">
+              Open Docs
+            </Link>
+          </div>
+        </div>
+      </section>
+    );
   }
 
   const guilds = await getManagedGuilds(session);
@@ -20,6 +64,7 @@ export default async function DashboardPage() {
           <span className="eyebrow">Dashboard</span>
           <h1>Выбери сервер для управления</h1>
           <p>Здесь показаны серверы, где у тебя есть право управления и где можно открыть панель Lunaria Fox.</p>
+          {authMessage ? <p className="page-alert">{authMessage}</p> : null}
         </div>
 
         <div className="guild-grid">

@@ -5,7 +5,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
   if (!isSupabaseAuthConfigured()) {
-    return NextResponse.redirect(new URL("/docs", request.nextUrl));
+    return NextResponse.redirect(new URL("/dashboard?auth_error=missing_supabase_auth", request.nextUrl));
   }
 
   const nextPath = request.nextUrl.searchParams.get("next");
