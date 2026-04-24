@@ -13,6 +13,7 @@
   "dependencies": {
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "latest",
+    "lzutf8": "^0.6.3",
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",

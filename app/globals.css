@@ -607,6 +607,10 @@ button {
   color: var(--accent);
 }
 
+.badge.danger {
+  color: var(--danger);
+}
+
 .badge.muted {
   color: var(--text-soft);
 }
@@ -917,8 +921,81 @@ button {
   margin-top: 16px;
 }
 
+.admin-premium-toolbar {
+  margin-bottom: 18px;
+}
+
+.admin-search-field {
+  min-width: min(360px, 100%);
+}
+
+.admin-premium-card {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-feature-button {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(209, 188, 255, 0.12);
+  background:
+    linear-gradient(180deg, rgba(17, 12, 31, 0.98), rgba(10, 8, 19, 0.96)),
+    rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  text-align: left;
+  display: grid;
+  gap: 8px;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.admin-feature-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(167, 124, 255, 0.24);
+  box-shadow: 0 14px 28px rgba(5, 4, 10, 0.18);
+}
+
+.admin-feature-button strong {
+  font-size: 0.98rem;
+}
+
+.admin-feature-button span {
+  color: var(--text-soft);
+  font-size: 0.84rem;
+}
+
+.admin-feature-button-active {
+  border-color: rgba(109, 230, 179, 0.24);
+  background:
+    linear-gradient(135deg, rgba(109, 230, 179, 0.12), rgba(255, 255, 255, 0.03)),
+    linear-gradient(180deg, rgba(17, 12, 31, 0.98), rgba(10, 8, 19, 0.96));
+}
+
+.admin-save-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.module-toggle-state.success {
+  color: var(--success);
+}
+
 @media (max-width: 780px) {
   .admin-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-feature-grid {
     grid-template-columns: 1fr;
   }
 }

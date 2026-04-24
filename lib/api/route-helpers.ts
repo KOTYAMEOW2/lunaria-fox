@@ -1,11 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { assertGuildAccess } from "@/lib/auth/access";
+import { assertOwnerSession } from "@/lib/auth/owners";
 import { getSession } from "@/lib/auth/session";
+import type { DiscordSession } from "@/lib/types";
 
 export async function requireGuildRequest(_request: NextRequest, guildId: string) {
   const session = await getSession();
   await assertGuildAccess(session, guildId);
+  return session;
+}
+
+export async function requireOwnerRequest(): Promise<DiscordSession> {
+  const session = await getSession();
+  assertOwnerSession(session);
   return session;
 }
 

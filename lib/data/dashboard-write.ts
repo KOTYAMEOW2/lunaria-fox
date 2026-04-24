@@ -52,6 +52,27 @@ type CustomCommandPayload = {
   meta?: Record<string, unknown>;
 };
 
+type PremiumSettingsPayload = {
+  premiumActive: boolean;
+  planName: string;
+  features: string[];
+  brandRole: {
+    role_name: string;
+    color: string;
+    hoist: boolean;
+    mentionable: boolean;
+  };
+  serverPanelSettings: Record<string, unknown>;
+  welcomeSettings: Record<string, unknown>;
+  analyticsSettings: Record<string, unknown>;
+};
+
+type AdminPremiumSettingsPayload = {
+  premiumActive: boolean;
+  planName: string;
+  features: string[];
+};
+
 function asErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown sync error.";
 }
@@ -407,24 +428,72 @@ export async function saveCommandSettings(
 
 export async function savePremiumSettings(
   guildId: string,
-  payload: {
-    premiumActive: boolean;
-    planName: string;
-    features: string[];
-    brandRole: {
-      role_name: string;
-      color: string;
-      hoist: boolean;
-      mentionable: boolean;
-    };
-    serverPanelSettings: Record<string, unknown>;
-    welcomeSettings: Record<string, unknown>;
-    analyticsSettings: Record<string, unknown>;
-  },
+  payload: PremiumSettingsPayload,
+) {
+  return savePremiumSettingsInternal(guildId, payload, { bypassPremiumAccess: false });
+}
+
+export async function saveAdminPremiumSettings(
+  guildId: string,
+  payload: AdminPremiumSettingsPayload,
 ) {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("Supabase is not configured.");
-  await assertPremiumAccess(guildId);
+
+  const [premiumCurrent, brandRoleCurrent] = await Promise.all([
+    supabase.from("guild_premium_settings").select("*").eq("guild_id", guildId).maybeSingle(),
+    supabase.from("brand_roles").select("*").eq("guild_id", guildId).maybeSingle(),
+  ]);
+
+  if (premiumCurrent.error) throw premiumCurrent.error;
+  if (brandRoleCurrent.error) throw brandRoleCurrent.error;
+
+  const premiumData =
+    premiumCurrent.data && typeof premiumCurrent.data === "object"
+      ? (premiumCurrent.data as Record<string, unknown>)
+      : {};
+  const brandRoleData =
+    brandRoleCurrent.data && typeof brandRoleCurrent.data === "object"
+      ? (brandRoleCurrent.data as Record<string, unknown>)
+      : {};
+
+  const mergedPayload: PremiumSettingsPayload = {
+    premiumActive: payload.premiumActive,
+    planName: payload.planName,
+    features: payload.features,
+    brandRole: {
+      role_name: typeof brandRoleData.role_name === "string" && brandRoleData.role_name.trim() ? brandRoleData.role_name : "Lunaria Premium",
+      color: typeof brandRoleData.color === "string" && brandRoleData.color.trim() ? brandRoleData.color : "#b784ff",
+      hoist: brandRoleData.hoist === true,
+      mentionable: brandRoleData.mentionable === true,
+    },
+    serverPanelSettings:
+      premiumData.server_panel_settings && typeof premiumData.server_panel_settings === "object"
+        ? (premiumData.server_panel_settings as Record<string, unknown>)
+        : {},
+    welcomeSettings:
+      premiumData.welcome_settings && typeof premiumData.welcome_settings === "object"
+        ? (premiumData.welcome_settings as Record<string, unknown>)
+        : {},
+    analyticsSettings:
+      premiumData.analytics_settings && typeof premiumData.analytics_settings === "object"
+        ? (premiumData.analytics_settings as Record<string, unknown>)
+        : {},
+  };
+
+  return savePremiumSettingsInternal(guildId, mergedPayload, { bypassPremiumAccess: true });
+}
+
+async function savePremiumSettingsInternal(
+  guildId: string,
+  payload: PremiumSettingsPayload,
+  options: { bypassPremiumAccess: boolean },
+) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) throw new Error("Supabase is not configured.");
+  if (!options.bypassPremiumAccess) {
+    await assertPremiumAccess(guildId);
+  }
 
   const now = new Date().toISOString();
 

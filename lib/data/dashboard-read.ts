@@ -131,17 +131,21 @@ export async function getAdminManagedGuilds(): Promise<AdminManagedGuild[]> {
       .order("name"),
     supabase
       .from("guild_premium_settings")
-      .select("guild_id, premium_active, plan_name"),
+      .select("guild_id, premium_active, plan_name, features"),
     supabase
       .from("dashboard_sync_states")
       .select("guild_id, revision, bot_applied_revision, status, last_error, bot_seen_at, bot_applied_at"),
   ]);
 
   const premiumByGuild = new Map(
-    ((premiumResult.data || []) as Array<{ guild_id: string; premium_active: boolean | null; plan_name: string | null }>).map((row) => [
-      row.guild_id,
-      row,
-    ]),
+    (
+      (premiumResult.data || []) as Array<{
+        guild_id: string;
+        premium_active: boolean | null;
+        plan_name: string | null;
+        features: string[] | null;
+      }>
+    ).map((row) => [row.guild_id, row]),
   );
   const syncByGuild = new Map(
     ((syncResult.data || []) as DashboardSyncStateRow[]).map((row) => [row.guild_id, row]),
@@ -162,6 +166,7 @@ export async function getAdminManagedGuilds(): Promise<AdminManagedGuild[]> {
         isAvailable: guild.is_available !== false,
         premiumActive: premium?.premium_active === true,
         premiumPlan: premium?.plan_name || null,
+        premiumFeatures: Array.isArray(premium?.features) ? premium.features : [],
         syncRevision: Number(sync?.revision || 0),
         appliedRevision: Number(sync?.bot_applied_revision || 0),
         syncStatus: sync?.status || null,

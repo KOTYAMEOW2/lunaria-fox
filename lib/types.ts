@@ -41,6 +41,7 @@ export type AdminManagedGuild = {
   isAvailable: boolean;
   premiumActive: boolean;
   premiumPlan: string | null;
+  premiumFeatures: string[];
   syncRevision: number;
   appliedRevision: number;
   syncStatus: string | null;

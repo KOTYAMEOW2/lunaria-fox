@@ -25,7 +25,7 @@ export function isOwnerSession(session: DiscordSession | null) {
   return isOwnerUserId(session?.userId);
 }
 
-export function assertOwnerSession(session: DiscordSession | null) {
+export function assertOwnerSession(session: DiscordSession | null): asserts session is DiscordSession {
   if (!session) {
     throw new Error("Unauthorized");
   }

@@ -8,6 +8,12 @@ const config = [
       "node_modules/**",
       "source_bundle/**",
       "release_bundle*/**",
+      "blockbench-app-extract/**",
+      "fabricmc-net-src/**",
+      "lrarmor-fabric-port/**",
+      "lrarmor-port-work/**",
+      "scp-fabric-mod/**",
+      "tmp_*/**",
     ],
   },
 ];
