@@ -5,8 +5,9 @@ import { assertOwnerSession } from "@/lib/auth/owners";
 import { getSession } from "@/lib/auth/session";
 import type { DiscordSession } from "@/lib/types";
 
-export async function requireGuildRequest(_request: NextRequest, guildId: string) {
+export async function requireGuildRequest(_request: NextRequest, guildId: string): Promise<DiscordSession> {
   const session = await getSession();
+  if (!session) throw new Error("Unauthorized");
   await assertGuildAccess(session, guildId);
   return session;
 }
