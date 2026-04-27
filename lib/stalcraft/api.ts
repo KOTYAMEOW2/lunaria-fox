@@ -40,20 +40,22 @@ export function buildStalcraftAuthUrl(state: string) {
   url.searchParams.set("client_id", getOptionalEnv("EXBO_CLIENT_ID"));
   url.searchParams.set("redirect_uri", getStalcraftRedirectUri());
   url.searchParams.set("response_type", "code");
-
-  const scope = getOptionalEnv("EXBO_SCOPES", DEFAULT_SCOPES);
-  if (scope) url.searchParams.set("scope", scope);
-
+  url.searchParams.set("scope", getOptionalEnv("EXBO_SCOPES", DEFAULT_SCOPES));
   url.searchParams.set("state", state);
   return url.toString();
 }
 
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
-  const parsed = text ? JSON.parse(text) : null;
+  let parsed: any = null;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = null;
+  }
 
   if (!response.ok) {
-    const detail = parsed?.message || parsed?.error || response.statusText;
+    const detail = parsed?.message || parsed?.error_description || parsed?.error || text || response.statusText;
     throw new Error(`STALCRAFT API error ${response.status}: ${detail}`);
   }
 
@@ -67,6 +69,7 @@ export async function exchangeStalcraftCode(code: string): Promise<StalcraftToke
     client_id: getOptionalEnv("EXBO_CLIENT_ID"),
     client_secret: getOptionalEnv("EXBO_CLIENT_SECRET"),
     redirect_uri: getStalcraftRedirectUri(),
+    scope: getOptionalEnv("EXBO_SCOPES", DEFAULT_SCOPES),
   });
 
   const response = await fetch(`${getExboOauthBase()}/token`, {
@@ -85,6 +88,7 @@ export async function refreshStalcraftToken(refreshToken: string): Promise<Stalc
     refresh_token: refreshToken,
     client_id: getOptionalEnv("EXBO_CLIENT_ID"),
     client_secret: getOptionalEnv("EXBO_CLIENT_SECRET"),
+    scope: getOptionalEnv("EXBO_SCOPES", DEFAULT_SCOPES),
   });
 
   const response = await fetch(`${getExboOauthBase()}/token`, {
@@ -98,7 +102,7 @@ export async function refreshStalcraftToken(refreshToken: string): Promise<Stalc
 }
 
 export async function fetchExboUser(accessToken: string): Promise<ExboUser> {
-  const response = await fetch(`${getStalcraftApiBase()}/user`, {
+  const response = await fetch(`${getExboOauthBase()}/user`, {
     headers: { authorization: `Bearer ${accessToken}` },
     cache: "no-store",
   });
