@@ -17,6 +17,7 @@ type SessionPreview = {
   globalName: string | null;
   avatar: string | null;
   isOwner?: boolean;
+  stalcraftLinked?: boolean;
 };
 
 export function SiteHeader() {
@@ -33,19 +34,13 @@ export function SiteHeader() {
         return (await response.json()) as { session: SessionPreview | null };
       })
       .then((payload) => {
-        if (!cancelled) {
-          setSession(payload.session ?? null);
-        }
+        if (!cancelled) setSession(payload.session ?? null);
       })
       .catch(() => {
-        if (!cancelled) {
-          setSession(null);
-        }
+        if (!cancelled) setSession(null);
       });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   return (
@@ -60,45 +55,25 @@ export function SiteHeader() {
         </Link>
 
         <nav className="header-nav">
-          <Link className="nav-pill" href="/features">
-            Features
-          </Link>
-          <Link className="nav-pill" href="/commands">
-            Commands
-          </Link>
-          <Link className="nav-pill" href="/pricing">
-            Pricing
-          </Link>
-          <Link className="nav-pill" href="/docs">
-            Docs
-          </Link>
-          <a className="secondary-button" href={publicEnv.inviteUrl} rel="noreferrer" target="_blank">
-            Invite Bot
-          </a>
+          <Link className="nav-pill" href="/features">Features</Link>
+          <Link className="nav-pill" href="/commands">Commands</Link>
+          <Link className="nav-pill" href="/pricing">Pricing</Link>
+          <Link className="nav-pill" href="/docs">Docs</Link>
+          <Link className="nav-pill" href="/stalcraft">STALCRAFT</Link>
+          {session?.stalcraftLinked ? <Link className="nav-pill" href="/stalcraft-video">STALCRAFT Video</Link> : null}
+          <a className="secondary-button" href={publicEnv.inviteUrl} rel="noreferrer" target="_blank">Invite Bot</a>
           {session ? (
             <>
-              <a className="ghost-button" href={buildDashboardUrl("/dashboard")}>
-                Dashboard
-              </a>
-              {session.isOwner ? (
-                <a className="ghost-button" href={buildDashboardUrl("/admin")}>
-                  Admin
-                </a>
-              ) : null}
+              <a className="ghost-button" href={buildDashboardUrl("/dashboard")}>Dashboard</a>
+              {session.isOwner ? <a className="ghost-button" href={buildDashboardUrl("/admin")}>Admin</a> : null}
               <span className="session-chip">
-                {session.avatar ? (
-                  <Image alt={session.username} height={28} src={session.avatar} unoptimized width={28} />
-                ) : null}
+                {session.avatar ? <Image alt={session.username} height={28} src={session.avatar} unoptimized width={28} /> : null}
                 <span>{session.globalName || session.username}</span>
               </span>
-              <a className="ghost-button" href={buildDashboardLogoutUrl()}>
-                Logout
-              </a>
+              <a className="ghost-button" href={buildDashboardLogoutUrl()}>Logout</a>
             </>
           ) : (
-            <a className="primary-button" href={buildDashboardLoginUrl()}>
-              Login with Discord
-            </a>
+            <a className="primary-button" href={buildDashboardLoginUrl()}>Login with Discord</a>
           )}
         </nav>
       </div>
