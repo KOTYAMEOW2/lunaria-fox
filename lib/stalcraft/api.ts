@@ -39,8 +39,11 @@ export function buildStalcraftAuthUrl(state: string) {
   const url = new URL(`${getExboOauthBase()}/authorize`);
   url.searchParams.set("client_id", getOptionalEnv("EXBO_CLIENT_ID"));
   url.searchParams.set("redirect_uri", getStalcraftRedirectUri());
-  url.searchParams.set("scope", getOptionalEnv("EXBO_SCOPES", DEFAULT_SCOPES));
   url.searchParams.set("response_type", "code");
+
+  const scope = getOptionalEnv("EXBO_SCOPES", DEFAULT_SCOPES);
+  if (scope) url.searchParams.set("scope", scope);
+
   url.searchParams.set("state", state);
   return url.toString();
 }
@@ -82,7 +85,6 @@ export async function refreshStalcraftToken(refreshToken: string): Promise<Stalc
     refresh_token: refreshToken,
     client_id: getOptionalEnv("EXBO_CLIENT_ID"),
     client_secret: getOptionalEnv("EXBO_CLIENT_SECRET"),
-    scope: getOptionalEnv("EXBO_SCOPES", DEFAULT_SCOPES),
   });
 
   const response = await fetch(`${getExboOauthBase()}/token`, {
@@ -96,7 +98,7 @@ export async function refreshStalcraftToken(refreshToken: string): Promise<Stalc
 }
 
 export async function fetchExboUser(accessToken: string): Promise<ExboUser> {
-  const response = await fetch(`${getExboOauthBase()}/user`, {
+  const response = await fetch(`${getStalcraftApiBase()}/user`, {
     headers: { authorization: `Bearer ${accessToken}` },
     cache: "no-store",
   });

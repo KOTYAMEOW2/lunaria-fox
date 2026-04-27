@@ -7,6 +7,7 @@ const schema = z.object({
   enabled: z.boolean(),
   commandsEnabled: z.boolean(),
   videoEnabled: z.boolean(),
+  autoSyncRoles: z.boolean(),
   communityName: z.string().max(120).nullable(),
   requiredClanId: z.string().max(128).nullable(),
   requiredClanName: z.string().max(120).nullable(),

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { assertGuildAccess } from "@/lib/auth/access";
 import { getSession } from "@/lib/auth/session";
 import { getGuildDashboardData } from "@/lib/data/dashboard-read";
-import { getStalcraftGuildSettings } from "@/lib/stalcraft/data";
+import { getStalcraftGuildSettings, getStalcraftProfile } from "@/lib/stalcraft/data";
 import { StalcraftGuildSettingsClient } from "@/components/stalcraft/stalcraft-guild-settings-client";
 
 export const dynamic = "force-dynamic";
@@ -13,9 +13,10 @@ export default async function GuildStalcraftPage({ params }: { params: Promise<{
   if (!session) redirect("/api/auth/discord/login");
   try { await assertGuildAccess(session, guildId); } catch { redirect("/dashboard"); }
 
-  const [data, settings] = await Promise.all([
+  const [data, settings, profile] = await Promise.all([
     getGuildDashboardData(guildId),
     getStalcraftGuildSettings(guildId).catch(() => null),
+    getStalcraftProfile(session.userId).catch(() => null),
   ]);
 
   return (
@@ -30,7 +31,20 @@ export default async function GuildStalcraftPage({ params }: { params: Promise<{
             <a className="secondary-button" href="/stalcraft">Моя привязка STALCRAFT</a>
           </div>
         </div>
-        <StalcraftGuildSettingsClient guildId={guildId} initial={settings} />
+        <StalcraftGuildSettingsClient
+          guildId={guildId}
+          initial={settings}
+          roles={data.roles}
+          selectedClan={
+            profile
+              ? {
+                  clanId: profile.selected_clan_id,
+                  clanName: profile.selected_clan_name,
+                  characterName: profile.selected_character_name,
+                }
+              : null
+          }
+        />
       </div>
     </section>
   );

@@ -46,6 +46,7 @@ create table if not exists public.stalcraft_guild_settings (
   enabled boolean not null default false,
   commands_enabled boolean not null default true,
   video_enabled boolean not null default true,
+  auto_sync_roles boolean not null default true,
   community_name text,
   required_clan_id text,
   required_clan_name text,
@@ -82,6 +83,12 @@ create index if not exists stalcraft_videos_status_created_idx
 
 create index if not exists stalcraft_videos_guild_idx
   on public.stalcraft_videos (guild_id, created_at desc);
+
+alter table public.stalcraft_guild_settings
+  add column if not exists auto_sync_roles boolean not null default true;
+
+create index if not exists stalcraft_guild_settings_enabled_idx
+  on public.stalcraft_guild_settings (enabled, video_enabled);
 
 -- The app uses service-role routes, so direct client RLS is not required for the MVP.
 -- Keep RLS disabled unless you later expose these tables directly to browser Supabase client.

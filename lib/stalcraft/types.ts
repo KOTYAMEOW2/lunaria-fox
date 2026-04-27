@@ -82,6 +82,7 @@ export type StalcraftGuildSettingsRow = {
   enabled: boolean | null;
   commands_enabled: boolean | null;
   video_enabled: boolean | null;
+  auto_sync_roles: boolean | null;
   community_name: string | null;
   required_clan_id: string | null;
   required_clan_name: string | null;
@@ -107,5 +108,16 @@ export type StalcraftVideoRow = {
   thumbnail_url: string | null;
   status: string | null;
   created_at: string | null;
+  updated_at: string | null;
+};
+
+export type StalcraftCommunityRow = {
+  guild_id: string;
+  guild_name: string | null;
+  guild_icon: string | null;
+  community_name: string | null;
+  required_clan_name: string | null;
+  video_enabled: boolean | null;
+  verified_role_name: string | null;
   updated_at: string | null;
 };
