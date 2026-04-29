@@ -2,34 +2,22 @@ import { getPremiumGuildSet } from "@/lib/env";
 import { canManageGuild, fetchDiscordGuilds } from "@/lib/auth/discord";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
-  BotAnalyticsEventRow,
-  BrandRoleRow,
   AdminManagedGuild,
   BotGuildRow,
-  CommandGroupRow,
+  BrandRoleRow,
   CommandPermissionRow,
   CommandRegistryRow,
-  CustomCommandRow,
-  DiscordSession,
   DashboardSyncStateRow,
+  DiscordSession,
   GuildChannelRow,
   GuildConfigRow,
   GuildDashboardData,
-  GuildLogEntryRow,
-  GuildLogSettingRow,
   GuildPremiumSettingsRow,
   GuildRoleRow,
-  GuildRuleRow,
   ManagedGuild,
   PremiumAnalyticsSummary,
   ServerCustomizationRow,
   ServerPanelRow,
-  SmartFilterRow,
-  TicketConfigRow,
-  TicketPanelRow,
-  TicketRow,
-  VoicemasterConfigRow,
-  VoicemasterRoomRow,
 } from "@/lib/types";
 
 function sortByName<T extends { name: string | null }>(rows: T[]) {
@@ -47,36 +35,6 @@ function emptyPremiumAnalytics(): PremiumAnalyticsSummary {
     topCommands: [],
     recentEventTypes: [],
   };
-}
-
-function buildPremiumAnalytics(rows: Array<{ event_type: string | null; payload: { command_name?: string } | null }>) {
-  const eventCounts = new Map<string, number>();
-  const commandCounts = new Map<string, number>();
-
-  for (const row of rows) {
-    const eventType = String(row.event_type || "event");
-    eventCounts.set(eventType, (eventCounts.get(eventType) || 0) + 1);
-
-    if (eventType === "command") {
-      const command = String(row.payload?.command_name || "unknown");
-      commandCounts.set(command, (commandCounts.get(command) || 0) + 1);
-    }
-  }
-
-  return {
-    totalEvents: rows.length,
-    commandCount: eventCounts.get("command") || 0,
-    memberJoinCount: eventCounts.get("member_join") || 0,
-    memberLeaveCount: eventCounts.get("member_leave") || 0,
-    topCommands: [...commandCounts.entries()]
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 6)
-      .map(([command, count]) => ({ command, count })),
-    recentEventTypes: [...eventCounts.entries()]
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 6)
-      .map(([eventType, count]) => ({ eventType, count })),
-  } satisfies PremiumAnalyticsSummary;
 }
 
 export async function getManagedGuilds(session: DiscordSession | null): Promise<ManagedGuild[]> {
@@ -185,7 +143,7 @@ export async function getPublicCommandDirectory() {
 
   const { data } = await supabase
     .from("commands_registry")
-    .select("*")
+    .select("command_name, category, description, command_type, supports_args, is_active, is_public, updated_at")
     .eq("is_public", true)
     .eq("is_active", true)
     .order("category")
@@ -200,7 +158,7 @@ export async function getGuildSyncState(guildId: string) {
 
   const { data, error } = await supabase
     .from("dashboard_sync_states")
-    .select("*")
+    .select("guild_id, revision, requested_at, requested_by, requested_source, last_section, changed_keys, site_updated_at, bot_seen_at, bot_applied_at, bot_applied_revision, status, last_error, meta")
     .eq("guild_id", guildId)
     .maybeSingle();
 
@@ -251,55 +209,66 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     roles,
     channels,
     commandsRegistry,
-    commandGroups,
     commandPermissions,
-    customCommands,
-    smartFilter,
-    guildRules,
-    logSettings,
-    recentLogEntries,
-    ticketConfig,
-    ticketPanels,
-    recentTickets,
-    voicemasterConfig,
-    voicemasterRooms,
     premiumSettings,
-    analyticsEvents,
     syncState,
   ] = await Promise.all([
-    supabase.from("bot_guilds").select("*").eq("guild_id", guildId).maybeSingle(),
-    supabase.from("guild_configs").select("*").eq("guild_id", guildId).maybeSingle(),
-    supabase.from("server_customizations").select("*").eq("guild_id", guildId).maybeSingle(),
-    supabase.from("server_panels").select("*").eq("guild_id", guildId).maybeSingle(),
-    supabase.from("brand_roles").select("*").eq("guild_id", guildId).maybeSingle(),
-    supabase.from("guild_roles").select("*").eq("guild_id", guildId).order("position", { ascending: false }),
-    supabase.from("guild_channels").select("*").eq("guild_id", guildId).order("position"),
-    supabase.from("commands_registry").select("*").order("category").order("command_name"),
-    supabase.from("command_groups").select("*").eq("guild_id", guildId).order("sort_order"),
-    supabase.from("command_permissions").select("*").eq("guild_id", guildId).order("command_name"),
-    supabase.from("custom_commands").select("*").eq("guild_id", guildId).order("command_name"),
-    supabase.from("smartfilter_configs").select("*").eq("guild_id", guildId).maybeSingle(),
-    supabase.from("guild_rules").select("*").eq("guild_id", guildId).order("rule_order"),
-    supabase.from("guild_log_settings").select("*").eq("guild_id", guildId).order("log_type"),
     supabase
-      .from("guild_log_entries")
-      .select("*")
+      .from("bot_guilds")
+      .select("guild_id, name, icon, owner_id, member_count, preferred_locale, is_available, updated_at")
       .eq("guild_id", guildId)
-      .order("created_at", { ascending: false })
-      .limit(20),
-    supabase.from("ticket_configs").select("*").eq("guild_id", guildId).maybeSingle(),
-    supabase.from("ticket_panels").select("*").eq("guild_id", guildId).order("panel_key"),
-    supabase.from("tickets").select("*").eq("guild_id", guildId).order("updated_at", { ascending: false }).limit(8),
-    supabase.from("voicemaster_configs").select("*").eq("guild_id", guildId).maybeSingle(),
-    supabase.from("voicemaster_rooms").select("*").eq("guild_id", guildId).order("updated_at", { ascending: false }),
-    supabase.from("guild_premium_settings").select("*").eq("guild_id", guildId).maybeSingle(),
+      .maybeSingle(),
     supabase
-      .from("bot_analytics")
-      .select("id, guild_id, event_type, payload, created_at")
+      .from("guild_configs")
+      .select("guild_id, prefix, language, enabled_modules, disabled_commands, mod_roles, admin_roles, appeals_channel_id, dm_punish_enabled, updated_at")
       .eq("guild_id", guildId)
-      .order("created_at", { ascending: false })
-      .limit(500),
-    supabase.from("dashboard_sync_states").select("*").eq("guild_id", guildId).maybeSingle(),
+      .maybeSingle(),
+    supabase
+      .from("server_customizations")
+      .select("guild_id, embed_color, footer_text, footer_icon_url, webhook_name, webhook_avatar_url, banner_url, updated_at")
+      .eq("guild_id", guildId)
+      .maybeSingle(),
+    supabase
+      .from("server_panels")
+      .select("guild_id, enabled, channel_id, message_id, updated_at")
+      .eq("guild_id", guildId)
+      .maybeSingle(),
+    supabase
+      .from("brand_roles")
+      .select("guild_id, role_id, role_name, color, hoist, mentionable, updated_at")
+      .eq("guild_id", guildId)
+      .maybeSingle(),
+    supabase
+      .from("guild_roles")
+      .select("guild_id, role_id, name, color, position, permissions, managed, mentionable, hoist, updated_at")
+      .eq("guild_id", guildId)
+      .order("position", { ascending: false }),
+    supabase
+      .from("guild_channels")
+      .select("guild_id, channel_id, name, type, parent_id, position, nsfw, topic, updated_at")
+      .eq("guild_id", guildId)
+      .order("position"),
+    supabase
+      .from("commands_registry")
+      .select("command_name, category, description, command_type, supports_args, is_active, is_public, updated_at")
+      .eq("is_active", true)
+      .order("category")
+      .order("command_name"),
+    supabase
+      .from("command_permissions")
+      .select("guild_id, command_name, enabled, mode, cooldown, allow_roles, deny_roles, allow_users, deny_users, allow_groups, deny_groups, allow_channels, deny_channels, updated_at")
+      .eq("guild_id", guildId)
+      .order("command_name"),
+    supabase
+      .from("guild_premium_settings")
+      .select("guild_id, premium_active, plan_name, features, welcome_settings, server_panel_settings, analytics_settings, updated_at")
+      .eq("guild_id", guildId)
+      .maybeSingle(),
+    supabase
+      .from("dashboard_sync_states")
+      .select("guild_id, revision, requested_at, requested_by, requested_source, last_section, changed_keys, site_updated_at, bot_seen_at, bot_applied_at, bot_applied_revision, status, last_error, meta")
+      .eq("guild_id", guildId)
+      .maybeSingle(),
   ]);
 
   const premiumSettingsRow =
@@ -317,25 +286,21 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     roles: sortByName((roles.data || []) as GuildRoleRow[]),
     channels: sortByName((channels.data || []) as GuildChannelRow[]),
     commandsRegistry: (commandsRegistry.data || []) as CommandRegistryRow[],
-    commandGroups: (commandGroups.data || []) as CommandGroupRow[],
+    commandGroups: [],
     commandPermissions: (commandPermissions.data || []) as CommandPermissionRow[],
-    customCommands: (customCommands.data || []) as CustomCommandRow[],
-    smartFilter: (smartFilter.data as SmartFilterRow | null) || null,
-    guildRules: (guildRules.data || []) as GuildRuleRow[],
-    logSettings: (logSettings.data || []) as GuildLogSettingRow[],
-    recentLogEntries: (recentLogEntries.data || []) as GuildLogEntryRow[],
-    ticketConfig: (ticketConfig.data as TicketConfigRow | null) || null,
-    ticketPanels: (ticketPanels.data || []) as TicketPanelRow[],
-    recentTickets: (recentTickets.data || []) as TicketRow[],
-    voicemasterConfig: (voicemasterConfig.data as VoicemasterConfigRow | null) || null,
-    voicemasterRooms: (voicemasterRooms.data || []) as VoicemasterRoomRow[],
+    customCommands: [],
+    smartFilter: null,
+    guildRules: [],
+    logSettings: [],
+    recentLogEntries: [],
+    ticketConfig: null,
+    ticketPanels: [],
+    recentTickets: [],
+    voicemasterConfig: null,
+    voicemasterRooms: [],
     premiumSettings: premiumSettingsRow,
-    premiumAnalytics: analyticsEvents.error
-      ? emptyPremiumAnalytics()
-      : buildPremiumAnalytics(
-          ((analyticsEvents.data || []) as Array<{ event_type: string | null; payload: { command_name?: string } | null }>),
-        ),
-    recentAnalyticsEvents: (analyticsEvents.data || []) as BotAnalyticsEventRow[],
+    premiumAnalytics: emptyPremiumAnalytics(),
+    recentAnalyticsEvents: [],
     premiumEnabled,
     syncState:
       syncState.error || !syncState.data ? null : (syncState.data as DashboardSyncStateRow | null),
