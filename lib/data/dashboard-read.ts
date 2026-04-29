@@ -18,9 +18,7 @@ import type {
   ManagedGuild,
   PremiumAnalyticsSummary,
   ServerCustomizationRow,
-  SmartFilterRow,
   VoicemasterConfigRow,
-  VoicemasterRoomRow,
 } from "@/lib/types";
 
 function sortByName<T extends { name: string | null }>(rows: T[]) {
@@ -212,10 +210,8 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     channels,
     commandsRegistry,
     commandPermissions,
-    smartFilter,
     logSettings,
     voicemasterConfig,
-    voicemasterRooms,
     premiumSettings,
     syncState,
   ] = await Promise.all([
@@ -261,11 +257,6 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
       .eq("guild_id", guildId)
       .order("command_name"),
     supabase
-      .from("smartfilter_configs")
-      .select("guild_id, enabled, banned_words, regex_rules, action, updated_at")
-      .eq("guild_id", guildId)
-      .maybeSingle(),
-    supabase
       .from("guild_log_settings")
       .select("guild_id, log_type, enabled, channel_id, mention_roles, embed_color, updated_at")
       .eq("guild_id", guildId)
@@ -275,12 +266,6 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
       .select("guild_id, enabled, creator_channel_id, category_id, log_channel_id, room_name_template, default_user_limit, default_bitrate, allow_owner_rename, allow_owner_limit, allow_owner_lock, allow_owner_hide, updated_at, hubs")
       .eq("guild_id", guildId)
       .maybeSingle(),
-    supabase
-      .from("voicemaster_rooms")
-      .select("channel_id, guild_id, owner_id, name, user_limit, bitrate, member_count, locked, hidden, created_at, updated_at, hub_id, allow_users, deny_users, panel_channel_id, panel_message_id, console_thread_id")
-      .eq("guild_id", guildId)
-      .order("updated_at", { ascending: false })
-      .limit(25),
     supabase
       .from("guild_premium_settings")
       .select("guild_id, premium_active, plan_name, features, welcome_settings, server_panel_settings, analytics_settings, updated_at")
@@ -311,7 +296,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     commandGroups: [],
     commandPermissions: (commandPermissions.data || []) as CommandPermissionRow[],
     customCommands: [],
-    smartFilter: (smartFilter.data as SmartFilterRow | null) || null,
+    smartFilter: null,
     guildRules: [],
     logSettings: (logSettings.data || []) as GuildLogSettingRow[],
     recentLogEntries: [],
@@ -319,7 +304,7 @@ export async function getGuildDashboardData(guildId: string): Promise<GuildDashb
     ticketPanels: [],
     recentTickets: [],
     voicemasterConfig: (voicemasterConfig.data as VoicemasterConfigRow | null) || null,
-    voicemasterRooms: (voicemasterRooms.data || []) as VoicemasterRoomRow[],
+    voicemasterRooms: [],
     premiumSettings: premiumSettingsRow,
     premiumAnalytics: emptyPremiumAnalytics(),
     recentAnalyticsEvents: [],
