@@ -25,33 +25,6 @@ type CommandPermissionPayload = {
   deny_channels?: string[];
 };
 
-type CommandGroupPayload = {
-  group_id: string;
-  name: string;
-  roles: string[];
-  scopes: string[];
-  color?: string | null;
-  is_default?: boolean;
-};
-
-type CustomCommandPayload = {
-  command_name: string;
-  description: string;
-  trigger_type: string;
-  response_mode: string;
-  response_text: string;
-  embed?: Record<string, unknown> | null;
-  actions?: Array<Record<string, unknown>>;
-  aliases: string[];
-  enabled: boolean;
-  cooldown: number;
-  allowed_roles?: string[];
-  denied_roles?: string[];
-  allowed_channels?: string[];
-  denied_channels?: string[];
-  meta?: Record<string, unknown>;
-};
-
 type PremiumSettingsPayload = {
   premiumActive: boolean;
   planName: string;
@@ -79,6 +52,18 @@ function asErrorMessage(error: unknown) {
 
 function dedupeStrings(input: string[] | undefined) {
   return uniqueStrings(input || []);
+}
+
+function liteModules(input: Record<string, boolean> | null | undefined) {
+  return {
+    ...(input || {}),
+    tickets: false,
+    serverpanel: false,
+    smartfilter: false,
+    lunarialog: input?.lunarialog ?? true,
+    voicemaster: input?.voicemaster ?? true,
+    moderation: input?.moderation ?? true,
+  };
 }
 
 async function assertPremiumAccess(guildId: string) {
@@ -152,7 +137,7 @@ export async function saveGuildOverview(
   payload: {
     prefix: string;
     language: string;
-    appealsChannelId: string | null;
+    appealsChannelId?: string | null;
     dmPunishEnabled: boolean;
     modRoles: string[];
     adminRoles: string[];
@@ -162,16 +147,18 @@ export async function saveGuildOverview(
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("Supabase is not configured.");
 
+  const enabledModules = liteModules(payload.enabledModules);
+
   const { error } = await supabase.from("guild_configs").upsert(
     {
       guild_id: guildId,
       prefix: payload.prefix,
       language: payload.language,
-      appeals_channel_id: payload.appealsChannelId,
+      appeals_channel_id: null,
       dm_punish_enabled: payload.dmPunishEnabled,
       mod_roles: dedupeStrings(payload.modRoles),
       admin_roles: dedupeStrings(payload.adminRoles),
-      enabled_modules: payload.enabledModules,
+      enabled_modules: enabledModules,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "guild_id" },
@@ -182,8 +169,11 @@ export async function saveGuildOverview(
   return {
     syncState: await queueGuildSync(guildId, {
       section: "overview",
-      changedKeys: ["prefix", "language", "appeals_channel_id", "dm_punish_enabled", "mod_roles", "admin_roles", "enabled_modules"],
-      meta: { enabledModules: Object.keys(payload.enabledModules) },
+      changedKeys: ["prefix", "language", "dm_punish_enabled", "mod_roles", "admin_roles", "enabled_modules"],
+      meta: {
+        enabledModules: Object.keys(enabledModules),
+        removedModules: ["tickets", "appeals", "serverpanel", "smartfilter", "custom_commands"],
+      },
     }),
   };
 }
@@ -197,56 +187,34 @@ export async function saveBrandingSettings(
     webhookName: string;
     webhookAvatarUrl: string | null;
     bannerUrl: string | null;
-    panelEnabled: boolean;
-    panelChannelId: string | null;
+    panelEnabled?: boolean;
+    panelChannelId?: string | null;
   },
 ) {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("Supabase is not configured.");
 
-  const now = new Date().toISOString();
+  const { error } = await supabase.from("server_customizations").upsert(
+    {
+      guild_id: guildId,
+      embed_color: payload.embedColor,
+      footer_text: payload.footerText,
+      footer_icon_url: payload.footerIconUrl || null,
+      webhook_name: payload.webhookName,
+      webhook_avatar_url: payload.webhookAvatarUrl || null,
+      banner_url: payload.bannerUrl || null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "guild_id" },
+  );
 
-  const [{ error: customizationError }, { error: panelError }] = await Promise.all([
-    supabase.from("server_customizations").upsert(
-      {
-        guild_id: guildId,
-        embed_color: payload.embedColor,
-        footer_text: payload.footerText,
-        footer_icon_url: payload.footerIconUrl || null,
-        webhook_name: payload.webhookName,
-        webhook_avatar_url: payload.webhookAvatarUrl || null,
-        banner_url: payload.bannerUrl || null,
-        updated_at: now,
-      },
-      { onConflict: "guild_id" },
-    ),
-    supabase.from("server_panels").upsert(
-      {
-        guild_id: guildId,
-        enabled: payload.panelEnabled,
-        channel_id: payload.panelChannelId,
-        updated_at: now,
-      },
-      { onConflict: "guild_id" },
-    ),
-  ]);
-
-  if (customizationError) throw customizationError;
-  if (panelError) throw panelError;
+  if (error) throw error;
 
   return {
     syncState: await queueGuildSync(guildId, {
       section: "branding",
-      changedKeys: [
-        "embed_color",
-        "footer_text",
-        "footer_icon_url",
-        "webhook_name",
-        "webhook_avatar_url",
-        "banner_url",
-        "server_panel.enabled",
-        "server_panel.channel_id",
-      ],
+      changedKeys: ["embed_color", "footer_text", "footer_icon_url", "webhook_name", "webhook_avatar_url", "banner_url"],
+      meta: { serverPanelRemoved: true },
     }),
   };
 }
@@ -254,72 +222,37 @@ export async function saveBrandingSettings(
 export async function saveModerationSettings(
   guildId: string,
   payload: {
-    smartFilterEnabled: boolean;
-    smartFilterAction: string;
-    bannedWords: string[];
-    regexRules: string[];
+    smartFilterEnabled?: boolean;
+    smartFilterAction?: string;
+    bannedWords?: string[];
+    regexRules?: string[];
     globalLogChannelId: string | null;
     globalLogColor: string | null;
-    rules: Array<{ title: string; content: string; enabled: boolean }>;
+    rules?: Array<{ title: string; content: string; enabled: boolean }>;
   },
 ) {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("Supabase is not configured.");
 
-  const now = new Date().toISOString();
-
-  const [{ error: smartFilterError }, { error: logError }] = await Promise.all([
-    supabase.from("smartfilter_configs").upsert(
-      {
-        guild_id: guildId,
-        enabled: payload.smartFilterEnabled,
-        action: payload.smartFilterAction,
-        banned_words: dedupeStrings(payload.bannedWords),
-        regex_rules: dedupeStrings(payload.regexRules),
-        updated_at: now,
-      },
-      { onConflict: "guild_id" },
-    ),
-    supabase.from("guild_log_settings").upsert(
-      {
-        guild_id: guildId,
-        log_type: "all",
-        enabled: Boolean(payload.globalLogChannelId),
-        channel_id: payload.globalLogChannelId,
-        embed_color: payload.globalLogColor || null,
-        updated_at: now,
-      },
-      { onConflict: "guild_id,log_type" },
-    ),
-  ]);
-
-  if (smartFilterError) throw smartFilterError;
-  if (logError) throw logError;
-
-  const { error: deleteRulesError } = await supabase.from("guild_rules").delete().eq("guild_id", guildId);
-  if (deleteRulesError) throw deleteRulesError;
-
-  const rows = payload.rules
-    .map((rule, index) => ({
+  const { error } = await supabase.from("guild_log_settings").upsert(
+    {
       guild_id: guildId,
-      rule_order: index + 1,
-      title: rule.title,
-      content: rule.content,
-      enabled: rule.enabled,
-      updated_at: now,
-    }))
-    .filter((rule) => rule.title || rule.content);
+      log_type: "all",
+      enabled: Boolean(payload.globalLogChannelId),
+      channel_id: payload.globalLogChannelId,
+      embed_color: payload.globalLogColor || null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "guild_id,log_type" },
+  );
 
-  if (rows.length > 0) {
-    const { error } = await supabase.from("guild_rules").insert(rows);
-    if (error) throw error;
-  }
+  if (error) throw error;
 
   return {
     syncState: await queueGuildSync(guildId, {
       section: "moderation",
-      changedKeys: ["smartfilter_configs", "guild_log_settings", "guild_rules"],
-      meta: { rulesCount: rows.length },
+      changedKeys: ["guild_log_settings"],
+      meta: { smartFilterRemoved: true, rulesDashboardRemoved: true, logsStoredInDiscordOnly: true },
     }),
   };
 }
@@ -328,15 +261,14 @@ export async function saveCommandSettings(
   guildId: string,
   payload: {
     commandPermissions: CommandPermissionPayload[];
-    commandGroups: CommandGroupPayload[];
-    customCommands: CustomCommandPayload[];
+    commandGroups?: unknown[];
+    customCommands?: unknown[];
   },
 ) {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("Supabase is not configured.");
 
   const now = new Date().toISOString();
-
   const permissionsRows = payload.commandPermissions.map((item) => ({
     guild_id: guildId,
     command_name: item.command_name,
@@ -361,82 +293,24 @@ export async function saveCommandSettings(
     if (error) throw error;
   }
 
-  const { error: deleteGroupsError } = await supabase.from("command_groups").delete().eq("guild_id", guildId);
-  if (deleteGroupsError) throw deleteGroupsError;
-
-  const groupRows = payload.commandGroups
-    .filter((group) => group.group_id)
-    .map((group, index) => ({
-      guild_id: guildId,
-      group_id: group.group_id.toLowerCase(),
-      name: group.name,
-      roles: dedupeStrings(group.roles),
-      scopes: dedupeStrings(group.scopes),
-      sort_order: index + 1,
-      color: group.color || null,
-      is_default: group.is_default === true,
-      updated_at: now,
-    }));
-
-  if (groupRows.length > 0) {
-    const { error } = await supabase.from("command_groups").insert(groupRows);
-    if (error) throw error;
-  }
-
-  const { error: deleteCustomCommandsError } = await supabase.from("custom_commands").delete().eq("guild_id", guildId);
-  if (deleteCustomCommandsError) throw deleteCustomCommandsError;
-
-  const customCommandRows = payload.customCommands
-    .filter((command) => command.command_name)
-    .map((command) => ({
-      guild_id: guildId,
-      command_name: command.command_name.toLowerCase(),
-      description: command.description,
-      trigger_type: command.trigger_type === "prefix" ? "prefix" : "prefix",
-      enabled: command.enabled,
-      response_mode: command.response_mode === "embed" ? "embed" : "text",
-      response_text: command.response_text,
-      embed: command.embed && typeof command.embed === "object" ? command.embed : {},
-      actions: Array.isArray(command.actions) ? command.actions : [],
-      aliases: dedupeStrings(command.aliases),
-      cooldown: command.cooldown,
-      allowed_roles: dedupeStrings(command.allowed_roles),
-      denied_roles: dedupeStrings(command.denied_roles),
-      allowed_channels: dedupeStrings(command.allowed_channels),
-      denied_channels: dedupeStrings(command.denied_channels),
-      meta: command.meta && typeof command.meta === "object" ? command.meta : {},
-      updated_at: now,
-    }));
-
-  if (customCommandRows.length > 0) {
-    const { error } = await supabase.from("custom_commands").insert(customCommandRows);
-    if (error) throw error;
-  }
-
   return {
     syncState: await queueGuildSync(guildId, {
       section: "commands",
-      changedKeys: ["command_permissions", "command_groups", "custom_commands"],
+      changedKeys: ["command_permissions"],
       meta: {
         permissionsCount: permissionsRows.length,
-        groupsCount: groupRows.length,
-        customCommandsCount: customCommandRows.length,
+        commandGroupsIgnored: true,
+        customCommandsRemoved: true,
       },
     }),
   };
 }
 
-export async function savePremiumSettings(
-  guildId: string,
-  payload: PremiumSettingsPayload,
-) {
+export async function savePremiumSettings(guildId: string, payload: PremiumSettingsPayload) {
   return savePremiumSettingsInternal(guildId, payload, { bypassPremiumAccess: false });
 }
 
-export async function saveAdminPremiumSettings(
-  guildId: string,
-  payload: AdminPremiumSettingsPayload,
-) {
+export async function saveAdminPremiumSettings(guildId: string, payload: AdminPremiumSettingsPayload) {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("Supabase is not configured.");
 
@@ -536,88 +410,8 @@ async function savePremiumSettingsInternal(
   };
 }
 
-export async function saveTicketSettings(
-  guildId: string,
-  payload: {
-    enabled: boolean;
-    defaultCategoryId: string | null;
-    defaultLogChannelId: string | null;
-    transcriptChannelId: string | null;
-    supportRoles: string[];
-    maxOpenPerUser: number;
-    panels: Array<{
-      panel_key: string;
-      panel_name: string;
-      panel_channel_id: string | null;
-      title: string;
-      description: string;
-      button_label: string;
-      button_style: string;
-      emoji: string;
-      category_id: string | null;
-      log_channel_id: string | null;
-      ticket_name_template: string;
-      enabled: boolean;
-    }>;
-  },
-) {
-  const supabase = getSupabaseAdmin();
-  if (!supabase) throw new Error("Supabase is not configured.");
-
-  const now = new Date().toISOString();
-
-  const [{ error: configError }, { error: deletePanelsError }] = await Promise.all([
-    supabase.from("ticket_configs").upsert(
-      {
-        guild_id: guildId,
-        enabled: payload.enabled,
-        default_category_id: payload.defaultCategoryId,
-        default_log_channel_id: payload.defaultLogChannelId,
-        transcript_channel_id: payload.transcriptChannelId,
-        support_roles: dedupeStrings(payload.supportRoles),
-        max_open_per_user: payload.maxOpenPerUser,
-        updated_at: now,
-      },
-      { onConflict: "guild_id" },
-    ),
-    supabase.from("ticket_panels").delete().eq("guild_id", guildId),
-  ]);
-
-  if (configError) throw configError;
-  if (deletePanelsError) throw deletePanelsError;
-
-  const panels = payload.panels
-    .filter((panel) => panel.panel_key)
-    .map((panel) => ({
-      guild_id: guildId,
-      panel_key: panel.panel_key,
-      panel_name: panel.panel_name,
-      panel_channel_id: panel.panel_channel_id,
-      title: panel.title,
-      description: panel.description,
-      button_label: panel.button_label,
-      button_style: panel.button_style,
-      emoji: panel.emoji,
-      category_id: panel.category_id,
-      log_channel_id: panel.log_channel_id,
-      ticket_name_template: panel.ticket_name_template,
-      max_open_per_user: payload.maxOpenPerUser,
-      enabled: panel.enabled,
-      updated_at: now,
-    }));
-
-  if (panels.length > 0) {
-    const { error } = await supabase.from("ticket_panels").insert(panels);
-    if (error) throw error;
-  }
-
-  return {
-    syncState: await queueGuildSync(guildId, {
-      section: "tickets",
-      changedKeys: ["ticket_configs", "ticket_panels"],
-      meta: { panelsCount: panels.length },
-    }),
-  };
+export async function saveTicketSettings() {
+  throw new Error("Tickets module is disabled in Lunaria Lite.");
 }
 
 export async function saveVoicemasterSettings(
