@@ -13,7 +13,6 @@ const env = {
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
-  premiumGuilds: process.env.PREMIUM_GUILDS || "",
 };
 
 export function isSupabaseAuthConfigured() {
@@ -22,15 +21,6 @@ export function isSupabaseAuthConfigured() {
 
 export function isSupabaseConfigured() {
   return Boolean(env.supabaseUrl && env.supabaseServiceRoleKey);
-}
-
-export function getPremiumGuildSet() {
-  return new Set(
-    env.premiumGuilds
-      .split(",")
-      .map((guildId) => guildId.trim())
-      .filter(Boolean),
-  );
 }
 
 export { env };

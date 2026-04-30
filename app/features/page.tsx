@@ -1,57 +1,29 @@
-import Link from "next/link";
-
-import { featureCards } from "@/lib/content";
-import { buildDashboardUrl } from "@/lib/public-env";
-
-const moduleCards = [
-  "Overview и базовые guild settings",
-  "Command registry, permissions и custom commands",
-  "Moderation stack: smart filter, rules, logs",
-  "Tickets: config, panels, open ticket activity",
-  "VoiceMaster: hubs, templates, room policy",
-  "Branding: embeds, webhooks, banner, server panel",
-];
-
 export default function FeaturesPage() {
+  const cards = [
+    ["КВ-пост", "Каждый день в 14:00 МСК бот отправляет embed с кнопками Участвую/Отсутствую."],
+    ["Отсутствия", "Modal собирает причину и тип: Турнир или Потасовка, затем отправляет отчёт в канал."],
+    ["Итоги КВ", "Табы kills/deaths/assists/казна/счёт публикуются в Discord и удаляются из Supabase."],
+    ["Выбросы", "Оповещения о начале и конце выброса в отдельный канал."],
+    ["Профили", "Привязанный STALCRAFT-персонаж, клан, ранг и master-снаряжение."],
+    ["Клановая таблица", "Закрытая статистика посещений доступна только участникам своего клана."],
+  ];
+
   return (
     <section className="page-shell">
       <div className="container">
         <div className="page-head">
-          <span className="eyebrow">Features</span>
-          <h1>Что именно получает Lunaria Fox</h1>
-          <p>Сайт, каталог команд и полноценный дашборд для ежедневной настройки бота и сервера.</p>
+          <span className="eyebrow">STALCRAFT Features</span>
+          <h1>Функции новой Lunaria Fox</h1>
+          <p>Всё лишнее удалено. Остались только инструменты для STALCRAFT-клана.</p>
         </div>
-
         <div className="grid-3">
-          {featureCards.map((card) => (
-            <article className="feature-card" key={card.title}>
-              <span className="eyebrow">{card.eyebrow}</span>
-              <h3>{card.title}</h3>
-              <p>{card.body}</p>
+          {cards.map(([title, body]) => (
+            <article className="feature-card" key={title}>
+              <span className="eyebrow">SC</span>
+              <h3>{title}</h3>
+              <p>{body}</p>
             </article>
           ))}
-        </div>
-
-        <div className="section">
-          <div className="panel">
-            <span className="eyebrow">Dashboard Surface</span>
-            <h2>Рабочие секции дашборда</h2>
-            <div className="grid-2">
-              {moduleCards.map((item) => (
-                <div className="panel-note" key={item}>
-                  {item}
-                </div>
-              ))}
-            </div>
-            <div className="stack-actions" style={{ marginTop: 18 }}>
-              <a className="primary-button" href={buildDashboardUrl("/dashboard")}>
-                Open Dashboard
-              </a>
-              <Link className="secondary-button" href="/commands">
-                Browse Commands
-              </Link>
-            </div>
-          </div>
         </div>
       </div>
     </section>

@@ -29,7 +29,7 @@ function tokenExpiry(expiresIn: number) {
 export async function getStalcraftProfile(discordUserId: string) {
   const supabase = requireSupabase();
   const { data, error } = await supabase
-    .from("stalcraft_profiles")
+    .from("sc_players")
     .select("*")
     .eq("discord_user_id", discordUserId)
     .maybeSingle();
@@ -58,7 +58,7 @@ export async function linkStalcraftProfileFromCode(discordUserId: string, code: 
     linked_at: now,
   };
 
-  const { error } = await supabase.from("stalcraft_profiles").upsert(row, { onConflict: "discord_user_id" });
+  const { error } = await supabase.from("sc_players").upsert(row, { onConflict: "discord_user_id" });
   if (error) throw error;
 
   return syncStalcraftCharacters(discordUserId);
@@ -77,7 +77,7 @@ export async function ensureFreshStalcraftAccessToken(profile: StalcraftProfileR
   const now = new Date().toISOString();
 
   const { error } = await supabase
-    .from("stalcraft_profiles")
+    .from("sc_players")
     .update({
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token || profile.refresh_token,
@@ -109,7 +109,7 @@ export async function syncStalcraftCharacters(discordUserId: string) {
   }
 
   if (characterRows.length > 0) {
-    const { error } = await supabase.from("stalcraft_characters_cache").upsert(characterRows, {
+    const { error } = await supabase.from("sc_character_cache").upsert(characterRows, {
       onConflict: "discord_user_id,region,character_id",
     });
     if (error) throw error;
@@ -121,7 +121,7 @@ export async function syncStalcraftCharacters(discordUserId: string) {
 export async function listStalcraftCharacters(discordUserId: string) {
   const supabase = requireSupabase();
   const { data, error } = await supabase
-    .from("stalcraft_characters_cache")
+    .from("sc_character_cache")
     .select("*")
     .eq("discord_user_id", discordUserId)
     .order("region")
@@ -138,7 +138,7 @@ export async function selectStalcraftCharacter(
 ) {
   const supabase = requireSupabase();
   const { data: character, error: characterError } = await supabase
-    .from("stalcraft_characters_cache")
+    .from("sc_character_cache")
     .select("*")
     .eq("discord_user_id", discordUserId)
     .eq("region", region)
@@ -150,7 +150,7 @@ export async function selectStalcraftCharacter(
 
   const row = character as StalcraftCharacterCacheRow;
   const { error } = await supabase
-    .from("stalcraft_profiles")
+    .from("sc_players")
     .update({
       selected_region: region,
       selected_character_id: row.character_id,
@@ -169,8 +169,8 @@ export async function selectStalcraftCharacter(
 export async function unlinkStalcraftProfile(discordUserId: string) {
   const supabase = requireSupabase();
   const [{ error: profileError }, { error: cacheError }] = await Promise.all([
-    supabase.from("stalcraft_profiles").delete().eq("discord_user_id", discordUserId),
-    supabase.from("stalcraft_characters_cache").delete().eq("discord_user_id", discordUserId),
+    supabase.from("sc_players").delete().eq("discord_user_id", discordUserId),
+    supabase.from("sc_character_cache").delete().eq("discord_user_id", discordUserId),
   ]);
 
   if (profileError) throw profileError;
@@ -180,7 +180,7 @@ export async function unlinkStalcraftProfile(discordUserId: string) {
 export async function getStalcraftGuildSettings(guildId: string) {
   const supabase = requireSupabase();
   const { data, error } = await supabase
-    .from("stalcraft_guild_settings")
+    .from("sc_guild_settings")
     .select("*")
     .eq("guild_id", guildId)
     .maybeSingle();
@@ -214,7 +214,7 @@ export async function saveStalcraftGuildSettings(
   }
 
   const { data, error } = await supabase
-    .from("stalcraft_guild_settings")
+    .from("sc_guild_settings")
     .upsert(
       {
         guild_id: guildId,
@@ -223,6 +223,8 @@ export async function saveStalcraftGuildSettings(
         video_enabled: payload.videoEnabled,
         auto_sync_roles: payload.autoSyncRoles,
         community_name: payload.communityName || profile?.selected_clan_name || profile?.selected_character_name || null,
+        clan_id: payload.requiredClanId || profile?.selected_clan_id || null,
+        clan_name: payload.requiredClanName || profile?.selected_clan_name || null,
         required_clan_id: payload.requiredClanId || profile?.selected_clan_id || null,
         required_clan_name: payload.requiredClanName || profile?.selected_clan_name || null,
         verified_role_id: payload.verifiedRoleId,
@@ -246,12 +248,12 @@ export async function saveStalcraftGuildSettings(
       requested_source: "dashboard",
       last_section: "stalcraft",
       changed_keys: [
-        "stalcraft_guild_settings.enabled",
-        "stalcraft_guild_settings.commands_enabled",
-        "stalcraft_guild_settings.video_enabled",
-        "stalcraft_guild_settings.auto_sync_roles",
-        "stalcraft_guild_settings.verified_role_id",
-        "stalcraft_guild_settings.verified_role_name",
+        "sc_guild_settings.enabled",
+        "sc_guild_settings.commands_enabled",
+        "sc_guild_settings.video_enabled",
+        "sc_guild_settings.auto_sync_roles",
+        "sc_guild_settings.verified_role_id",
+        "sc_guild_settings.verified_role_name",
       ],
       site_updated_at: now,
       status: "queued",
@@ -272,7 +274,7 @@ export async function saveStalcraftGuildSettings(
 export async function listEnabledStalcraftCommunities() {
   const supabase = requireSupabase();
   const { data: settings, error } = await supabase
-    .from("stalcraft_guild_settings")
+    .from("sc_guild_settings")
     .select("guild_id, community_name, required_clan_name, video_enabled, verified_role_name, updated_at")
     .eq("enabled", true)
     .order("updated_at", { ascending: false })
@@ -293,7 +295,7 @@ export async function listEnabledStalcraftCommunities() {
 
   const guildIds = rows.map((row) => row.guild_id);
   const { data: guilds } = await supabase
-    .from("bot_guilds")
+    .from("sc_guilds")
     .select("guild_id, name, icon")
     .in("guild_id", guildIds);
 
@@ -325,7 +327,7 @@ export async function listVisibleStalcraftVideos(discordUserId: string) {
 
   const supabase = requireSupabase();
   const { data, error } = await supabase
-    .from("stalcraft_videos")
+    .from("sc_videos")
     .select("*")
     .eq("status", "published")
     .order("created_at", { ascending: false })

@@ -1,67 +1,52 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { AdminPremiumControlPlane } from "@/components/admin/admin-premium-control-plane";
-import { assertOwnerSession, isOwnerSession } from "@/lib/auth/owners";
+import { assertOwnerSession } from "@/lib/auth/owners";
 import { getSession } from "@/lib/auth/session";
-import { getAdminManagedGuilds } from "@/lib/data/dashboard-read";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
   const session = await getSession();
-
-  if (!session) {
-    redirect("/api/auth/discord/login?next=/admin");
-  }
-
+  if (!session) redirect("/api/auth/discord/login?next=/admin");
   try {
     assertOwnerSession(session);
   } catch {
     redirect("/dashboard");
   }
 
-  const guilds = await getAdminManagedGuilds();
-  const totalGuilds = guilds.length;
-  const availableGuilds = guilds.filter((guild) => guild.isAvailable).length;
-  const premiumGuilds = guilds.filter((guild) => guild.premiumActive).length;
-  const pendingSyncGuilds = guilds.filter((guild) => guild.syncRevision > guild.appliedRevision).length;
+  const supabase = getSupabaseAdmin();
+  const { data: guilds } = supabase
+    ? await supabase.from("sc_guilds").select("guild_id, name, member_count, is_available, updated_at").order("name")
+    : { data: [] };
 
   return (
     <section className="page-shell">
       <div className="container">
         <div className="page-head">
-          <span className="eyebrow">Admin Panel</span>
-          <h1>Глобальное управление Lunaria Fox</h1>
-          <p>
-            Панель доступна только owner ID. Здесь видны все серверы из индекса бота, а переход по кнопке открывает
-            полный guild dashboard даже без обычных Discord manage-rights на этом аккаунте.
-          </p>
+          <span className="eyebrow">STALCRAFT Admin</span>
+          <h1>Глобальный список SC-серверов</h1>
+          <p>Здесь только STALCRAFT-only индекс серверов. Premium и старые general-модули удалены.</p>
         </div>
-
-        <div className="control-grid page-control-grid">
-          <div className="control-card">
-            <strong>Tracked guilds</strong>
-            <span>{totalGuilds}</span>
-          </div>
-          <div className="control-card">
-            <strong>Available now</strong>
-            <span>{availableGuilds}</span>
-          </div>
-          <div className="control-card">
-            <strong>Premium guilds</strong>
-            <span>{premiumGuilds}</span>
-          </div>
-          <div className="control-card">
-            <strong>Pending sync</strong>
-            <span>{pendingSyncGuilds}</span>
-          </div>
+        <div className="guild-grid">
+          {(guilds || []).map((guild: any) => (
+            <article className="guild-card" key={guild.guild_id}>
+              <div className="guild-card-header">
+                <div>
+                  <h3>{guild.name || guild.guild_id}</h3>
+                  <p>{guild.member_count || 0} members</p>
+                </div>
+                <span className={`badge ${guild.is_available === false ? "warn" : "success"}`}>
+                  {guild.is_available === false ? "offline" : "available"}
+                </span>
+              </div>
+              <div className="stack-actions" style={{ marginTop: 18 }}>
+                <Link className="primary-button" href={`/dashboard/${guild.guild_id}`}>Open</Link>
+              </div>
+            </article>
+          ))}
         </div>
-
-        <AdminPremiumControlPlane guilds={guilds} />
-
-        {isOwnerSession(session) && guilds.length === 0 ? (
-          <p className="page-alert">Индекс `bot_guilds` пока пуст. Бот должен подняться и синхронизировать серверы.</p>
-        ) : null}
       </div>
     </section>
   );
