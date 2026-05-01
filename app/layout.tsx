@@ -8,6 +8,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: `${publicEnv.siteName} | STALCRAFT Operations`,
   description: "STALCRAFT-only сайт и дашборд для кланов, КВ, посещаемости, выбросов и профилей игроков.",
+  icons: {
+    icon: "/stalcraft-fox-avatar.png",
+    shortcut: "/stalcraft-fox-avatar.png",
+    apple: "/stalcraft-fox-avatar.png",
+  },
 };
 
 export default async function RootLayout({

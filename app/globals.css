@@ -84,9 +84,9 @@ button {
   inset: 0;
   z-index: -2;
   background:
-    linear-gradient(180deg, rgba(7, 5, 13, 0.52), rgba(7, 5, 13, 0.76)),
-    linear-gradient(90deg, rgba(10, 7, 20, 0.1), rgba(10, 7, 20, 0.34)),
-    url("/lunaria-background.png");
+    linear-gradient(180deg, rgba(4, 7, 6, 0.62), rgba(4, 7, 6, 0.82)),
+    linear-gradient(90deg, rgba(4, 7, 6, 0.34), rgba(4, 7, 6, 0.58)),
+    url("/stalcraft-background.png");
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
@@ -166,7 +166,7 @@ button {
   height: 48px;
   border-radius: 16px;
   background-color: rgba(15, 10, 28, 0.92);
-  background-image: url("/lunaria-brand-avatar.png");
+  background-image: url("/stalcraft-fox-avatar.png");
   background-position: center;
   background-repeat: no-repeat;
   background-size: cover;
@@ -384,9 +384,9 @@ button {
   border-radius: 28px;
   border: 1px solid rgba(209, 188, 255, 0.12);
   background:
-    linear-gradient(180deg, rgba(8, 6, 16, 0.14), rgba(8, 6, 16, 0.5)),
-    linear-gradient(90deg, rgba(5, 4, 10, 0.14), rgba(5, 4, 10, 0.44)),
-    url("/lunaria-background.png");
+    linear-gradient(180deg, rgba(8, 10, 8, 0.18), rgba(4, 7, 6, 0.58)),
+    linear-gradient(90deg, rgba(4, 7, 6, 0.18), rgba(4, 7, 6, 0.5)),
+    url("/stalcraft-background.png");
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
@@ -1714,9 +1714,9 @@ body {
 
 .app-shell::before {
   background:
-    linear-gradient(180deg, rgba(1, 4, 3, 0.62), rgba(2, 4, 4, 0.82)),
-    linear-gradient(90deg, rgba(1, 4, 3, 0.74), rgba(1, 4, 3, 0.18), rgba(1, 4, 3, 0.88)),
-    url("/lunaria-background.png");
+    linear-gradient(180deg, rgba(1, 4, 3, 0.52), rgba(2, 4, 4, 0.78)),
+    linear-gradient(90deg, rgba(1, 4, 3, 0.68), rgba(1, 4, 3, 0.08), rgba(1, 4, 3, 0.74)),
+    url("/stalcraft-background.png");
   background-position: center;
   background-size: cover;
 }
@@ -2312,6 +2312,58 @@ body {
   background: rgba(8, 14, 12, 0.9);
   border-color: rgba(136, 255, 192, 0.18);
   color: var(--sc-green-strong);
+}
+
+.sc-admin-notice {
+  margin-bottom: 18px;
+}
+
+.sc-admin-guild-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.sc-admin-guild-card::after {
+  content: "";
+  position: absolute;
+  inset: auto 18px 18px auto;
+  width: 86px;
+  height: 2px;
+  background: var(--sc-red);
+  box-shadow: 0 0 18px rgba(255, 112, 111, 0.46);
+}
+
+.sc-admin-action-state {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 184, 95, 0.14);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.sc-admin-action-state p {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.sc-danger-button {
+  border-color: rgba(255, 112, 111, 0.32);
+  color: #ffd2d2;
+  background:
+    linear-gradient(135deg, rgba(255, 112, 111, 0.16), rgba(0, 0, 0, 0.16)),
+    rgba(0, 0, 0, 0.18);
+}
+
+.sc-danger-button:hover {
+  border-color: rgba(255, 112, 111, 0.56);
+  color: white;
+}
+
+.sc-danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+  transform: none;
 }
 
 @keyframes sc-sweep {

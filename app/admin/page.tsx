@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { assertOwnerSession } from "@/lib/auth/owners";
 import { getSession } from "@/lib/auth/session";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { ScAdminGuildControlClient } from "@/components/stalcraft/sc-admin-guild-control-client";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +17,37 @@ export default async function AdminPage() {
   }
 
   const supabase = getSupabaseAdmin();
-  const { data: guilds } = supabase
-    ? await supabase.from("sc_guilds").select("guild_id, name, member_count, is_available, updated_at").order("name")
-    : { data: [] };
+  let guilds: any[] = [];
+  let latestActions: any[] = [];
+
+  if (supabase) {
+    const guildResult = await supabase
+      .from("sc_guilds")
+      .select("guild_id, name, member_count, is_available, updated_at")
+      .order("name");
+    guilds = guildResult.data || [];
+
+    if (guilds.length > 0) {
+      const actionResult = await supabase
+        .from("sc_admin_bot_actions")
+        .select("id, guild_id, action, status, reason, error_message, created_at, processed_at")
+        .in("guild_id", guilds.map((guild: any) => guild.guild_id))
+        .order("created_at", { ascending: false });
+      latestActions = actionResult.data || [];
+    }
+  }
+
+  const latestActionByGuild = new Map<string, any>();
+  for (const action of latestActions) {
+    if (!latestActionByGuild.has(action.guild_id)) {
+      latestActionByGuild.set(action.guild_id, action);
+    }
+  }
+
+  const guildPayload = guilds.map((guild) => ({
+    ...guild,
+    latest_action: latestActionByGuild.get(guild.guild_id) || null,
+  }));
 
   return (
     <section className="page-shell sc-page-shell">
@@ -29,24 +57,7 @@ export default async function AdminPage() {
           <h1>Глобальный список SC-серверов</h1>
           <p>Здесь только STALCRAFT-only индекс серверов. Premium и старые general-модули удалены.</p>
         </div>
-        <div className="guild-grid sc-guild-grid">
-          {(guilds || []).map((guild: any) => (
-            <article className="guild-card sc-guild-card" key={guild.guild_id}>
-              <div className="guild-card-header">
-                <div>
-                  <h3>{guild.name || guild.guild_id}</h3>
-                  <p>{guild.member_count || 0} members</p>
-                </div>
-                <span className={`badge ${guild.is_available === false ? "warn" : "success"}`}>
-                  {guild.is_available === false ? "offline" : "available"}
-                </span>
-              </div>
-              <div className="stack-actions" style={{ marginTop: 18 }}>
-                <Link className="primary-button sc-primary" href={`/dashboard/${guild.guild_id}`}>Открыть штаб</Link>
-              </div>
-            </article>
-          ))}
-        </div>
+        <ScAdminGuildControlClient guilds={guildPayload} />
       </div>
     </section>
   );
