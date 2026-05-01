@@ -1,6 +1,11 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
-import { getStalcraftProfile, listEnabledStalcraftCommunities, listStalcraftCharacters } from "@/lib/stalcraft/data";
+import {
+  getStalcraftProfile,
+  listEnabledStalcraftCommunities,
+  listRegisteredStalcraftFriends,
+  listStalcraftCharacters,
+} from "@/lib/stalcraft/data";
 import { StalcraftProfileClient } from "@/components/stalcraft/stalcraft-profile-client";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +19,12 @@ export default async function StalcraftPage({ searchParams }: { searchParams?: P
     getStalcraftProfile(session.userId).catch(() => null),
     listEnabledStalcraftCommunities().catch(() => []),
   ]);
-  const characters = profile ? await listStalcraftCharacters(session.userId).catch(() => []) : [];
+  const [characters, friends] = profile
+    ? await Promise.all([
+        listStalcraftCharacters(session.userId).catch(() => []),
+        listRegisteredStalcraftFriends(session.userId).catch(() => []),
+      ])
+    : [[], []];
 
   return (
     <section className="page-shell">
@@ -26,7 +36,7 @@ export default async function StalcraftPage({ searchParams }: { searchParams?: P
           {params.error ? <p className="page-alert">Ошибка: {params.error}</p> : null}
           {params.linked ? <p className="page-alert">EXBO-профиль привязан. Теперь выбери персонажа.</p> : null}
         </div>
-        <StalcraftProfileClient profile={profile} characters={characters} />
+        <StalcraftProfileClient profile={profile} characters={characters} friends={friends} />
 
         <div className="section">
           <div className="dashboard-head">

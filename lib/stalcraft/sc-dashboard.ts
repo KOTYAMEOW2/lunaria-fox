@@ -1,3 +1,4 @@
+import { isOfficerAccessLevel } from "@/lib/auth/access";
 import { canManageGuild, fetchDiscordGuilds } from "@/lib/auth/discord";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { DiscordSession } from "@/lib/types";
@@ -23,6 +24,8 @@ export type ScGuildDashboardData = {
   resultQueue: any[];
   clanMembers: any[];
   clanStats: any[];
+  squads: any[];
+  squadMembers: any[];
   logs: any[];
   emission: any | null;
 };
@@ -45,25 +48,42 @@ export async function getScManagedGuilds(session: DiscordSession | null): Promis
   if (!session) return [];
   if (!session.accessToken) return [];
 
-  const discordGuilds = (await fetchDiscordGuilds(session.accessToken)).filter(canManageGuild);
+  const discordGuilds = await fetchDiscordGuilds(session.accessToken);
   if (discordGuilds.length === 0) return [];
 
   const guildIds = discordGuilds.map((guild) => guild.id);
-  const [{ data: indexed }, { data: settings }] = await Promise.all([
+  const [{ data: indexed }, { data: settings }, { data: player }, { data: accessRows }] = await Promise.all([
     supabase()
       .from("sc_guilds")
       .select("guild_id, name, icon, member_count, is_available, updated_at")
       .in("guild_id", guildIds),
     supabase()
       .from("sc_guild_settings")
-      .select("guild_id, clan_name, community_name")
+      .select("guild_id, clan_id, clan_name, community_name")
       .in("guild_id", guildIds),
+    supabase()
+      .from("sc_players")
+      .select("selected_clan_id, selected_clan_rank")
+      .eq("discord_user_id", session.userId)
+      .maybeSingle(),
+    supabase()
+      .from("sc_clan_access")
+      .select("clan_id, access_level")
+      .eq("discord_user_id", session.userId),
   ]);
 
   const indexedById = new Map<string, any>((indexed || []).map((row: any) => [row.guild_id, row]));
   const settingsById = new Map<string, any>((settings || []).map((row: any) => [row.guild_id, row]));
+  const officerClanIds = new Set<string>();
+  if (player?.selected_clan_id && isOfficerAccessLevel(player.selected_clan_rank)) officerClanIds.add(player.selected_clan_id);
+  for (const row of accessRows || []) {
+    if (row.clan_id && isOfficerAccessLevel(row.access_level)) officerClanIds.add(row.clan_id);
+  }
 
-  return discordGuilds.map((guild) => {
+  return discordGuilds.filter((guild) => {
+    const config = settingsById.get(guild.id);
+    return canManageGuild(guild) || (config?.clan_id && officerClanIds.has(config.clan_id));
+  }).map((guild) => {
     const tracked = indexedById.get(guild.id);
     const config = settingsById.get(guild.id);
     const installed = isFreshBotGuild(tracked);
@@ -117,6 +137,16 @@ export async function getScGuildDashboardData(guildId: string): Promise<ScGuildD
       ? supabase().from("sc_clan_attendance_stats").select("*").eq("clan_id", clanId).order("character_name")
       : Promise.resolve({ data: [] }),
   ]);
+  const squadIds = [] as string[];
+  const { data: squads } = await supabase()
+    .from("sc_cw_squads")
+    .select("*")
+    .eq("guild_id", guildId)
+    .order("created_at", { ascending: true });
+  for (const squad of squads || []) squadIds.push(squad.id);
+  const { data: squadMembers } = squadIds.length
+    ? await supabase().from("sc_cw_squad_members").select("*").in("squad_id", squadIds).order("created_at")
+    : { data: [] as any[] };
 
   return {
     guild: guild.data || null,
@@ -129,6 +159,8 @@ export async function getScGuildDashboardData(guildId: string): Promise<ScGuildD
     resultQueue: resultQueue.data || [],
     clanMembers: clanMembers.data || [],
     clanStats: clanStats.data || [],
+    squads: squads || [],
+    squadMembers: squadMembers || [],
     logs: logs.data || [],
     emission: emission.data || null,
   };
@@ -230,6 +262,98 @@ export async function addCwResultRows(
   const { error } = await supabase().from("sc_cw_result_queue").insert(payload);
   if (error) throw error;
   return payload.length;
+}
+
+export async function createCwSquad(
+  guildId: string,
+  userId: string,
+  payload: { name: string; description?: string | null; voice_channel_id?: string | null },
+) {
+  const { data: settings } = await supabase()
+    .from("sc_guild_settings")
+    .select("clan_id")
+    .eq("guild_id", guildId)
+    .maybeSingle();
+  const { data: session } = await supabase()
+    .from("sc_cw_sessions")
+    .select("id")
+    .eq("guild_id", guildId)
+    .order("cw_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data, error } = await supabase()
+    .from("sc_cw_squads")
+    .insert({
+      guild_id: guildId,
+      clan_id: settings?.clan_id || null,
+      session_id: session?.id || null,
+      name: payload.name.trim(),
+      description: payload.description?.trim() || null,
+      voice_channel_id: payload.voice_channel_id || null,
+      created_by: userId,
+    })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteCwSquad(guildId: string, squadId: string) {
+  const { error } = await supabase()
+    .from("sc_cw_squads")
+    .delete()
+    .eq("guild_id", guildId)
+    .eq("id", squadId);
+  if (error) throw error;
+}
+
+export async function setCwSquadMember(
+  guildId: string,
+  userId: string,
+  payload: { squad_id: string; discord_user_id: string; character_name?: string | null },
+) {
+  const { data: squad, error: squadError } = await supabase()
+    .from("sc_cw_squads")
+    .select("id, guild_id")
+    .eq("id", payload.squad_id)
+    .eq("guild_id", guildId)
+    .maybeSingle();
+
+  if (squadError) throw squadError;
+  if (!squad) throw new Error("Squad was not found.");
+
+  const { error } = await supabase().from("sc_cw_squad_members").upsert(
+    {
+      squad_id: payload.squad_id,
+      discord_user_id: payload.discord_user_id,
+      character_name: payload.character_name || null,
+      assigned_by: userId,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "squad_id,discord_user_id" },
+  );
+  if (error) throw error;
+}
+
+export async function removeCwSquadMember(guildId: string, squadId: string, discordUserId: string) {
+  const { data: squad, error: squadError } = await supabase()
+    .from("sc_cw_squads")
+    .select("id")
+    .eq("id", squadId)
+    .eq("guild_id", guildId)
+    .maybeSingle();
+
+  if (squadError) throw squadError;
+  if (!squad) throw new Error("Squad was not found.");
+
+  const { error } = await supabase()
+    .from("sc_cw_squad_members")
+    .delete()
+    .eq("squad_id", squadId)
+    .eq("discord_user_id", discordUserId);
+  if (error) throw error;
 }
 
 export async function getClanDashboardForUser(session: DiscordSession, clanId: string) {

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-export type ScDashboardSection = "settings" | "attendance" | "tabs";
+export type ScDashboardSection = "settings" | "attendance" | "squads" | "tabs";
 
 type Props = {
   guildId: string;
@@ -21,6 +21,7 @@ const roleKeys = [
 const navItems: Array<[ScDashboardSection, string, string]> = [
   ["settings", "Настройки", "settings"],
   ["attendance", "Посещения", "attendance"],
+  ["squads", "Отряды КВ", "squads"],
   ["tabs", "Табы КВ", "cw-tabs"],
 ];
 
@@ -249,6 +250,9 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
   const [ocrStatus, setOcrStatus] = useState("Картинка не сохраняется: OCR работает в браузере.");
   const [ocrPreviewRows, setOcrPreviewRows] = useState<CwResultRow[]>([]);
   const [resultRows, setResultRows] = useState<CwResultRow[]>(() => data.resultQueue || []);
+  const [squads, setSquads] = useState<any[]>(() => data.squads || []);
+  const [squadMembers, setSquadMembers] = useState<any[]>(() => data.squadMembers || []);
+  const [squadForm, setSquadForm] = useState({ name: "", description: "", voice_channel_id: "" });
   const clanOptions = useMemo(() => uniqueClanOptions(data.userCharacters || []), [data.userCharacters]);
   const initialClanKey = clanOptions.find((clan) => clan.clan_id && clan.clan_id === data.settings?.clan_id)?.key || "";
   const [settings, setSettings] = useState({
@@ -287,6 +291,14 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
     };
   }, [data.attendance]);
   const totalRows = useMemo(() => aggregateRows(resultRows), [resultRows]);
+  const membersBySquad = useMemo(() => {
+    const grouped = new Map<string, any[]>();
+    for (const member of squadMembers) {
+      const key = String(member.squad_id);
+      grouped.set(key, [...(grouped.get(key) || []), member]);
+    }
+    return grouped;
+  }, [squadMembers]);
 
   function selectClan(key: string) {
     const clan = clanOptions.find((item) => item.key === key);
@@ -356,6 +368,83 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
 
   async function uploadResults() {
     await uploadRows(parseManualResultRows(resultText));
+  }
+
+  async function mutateSquads(payload: Record<string, unknown>) {
+    const response = await fetch(`/api/sc/guilds/${guildId}/squads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || "Squad request failed.");
+    return body;
+  }
+
+  async function createSquad() {
+    if (!squadForm.name.trim()) {
+      setStatus("Название отряда обязательно.");
+      return;
+    }
+
+    setStatus("Создаю отряд...");
+    try {
+      const body = await mutateSquads({
+        action: "create",
+        name: squadForm.name,
+        description: squadForm.description || null,
+        voice_channel_id: squadForm.voice_channel_id || null,
+      });
+      setSquads((current) => [...current, body.squad]);
+      setSquadForm({ name: "", description: "", voice_channel_id: "" });
+      setStatus("Отряд создан.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Ошибка создания отряда.");
+    }
+  }
+
+  async function deleteSquad(squadId: string) {
+    setStatus("Удаляю отряд...");
+    try {
+      await mutateSquads({ action: "delete", squad_id: squadId });
+      setSquads((current) => current.filter((squad) => squad.id !== squadId));
+      setSquadMembers((current) => current.filter((member) => member.squad_id !== squadId));
+      setStatus("Отряд удалён.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Ошибка удаления отряда.");
+    }
+  }
+
+  async function assignSquadMember(squadId: string, discordUserId: string) {
+    if (!discordUserId) return;
+    const member = (data.clanMembers || []).find((row: any) => row.discord_user_id === discordUserId);
+    setStatus("Добавляю игрока в отряд...");
+    try {
+      await mutateSquads({
+        action: "assign",
+        squad_id: squadId,
+        discord_user_id: discordUserId,
+        character_name: member?.character_name || null,
+      });
+      setSquadMembers((current) => [
+        ...current.filter((row) => !(row.squad_id === squadId && row.discord_user_id === discordUserId)),
+        { squad_id: squadId, discord_user_id: discordUserId, character_name: member?.character_name || null },
+      ]);
+      setStatus("Игрок добавлен в отряд.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Ошибка добавления игрока.");
+    }
+  }
+
+  async function removeSquadMember(squadId: string, discordUserId: string) {
+    setStatus("Убираю игрока из отряда...");
+    try {
+      await mutateSquads({ action: "remove", squad_id: squadId, discord_user_id: discordUserId });
+      setSquadMembers((current) => current.filter((row) => !(row.squad_id === squadId && row.discord_user_id === discordUserId)));
+      setStatus("Игрок убран из отряда.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Ошибка удаления игрока.");
+    }
   }
 
   async function readScreenshot(file: File) {
@@ -522,6 +611,92 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                   <p>{row.absence_type ? `${row.absence_type}: ${row.absence_reason || "без причины"}` : "Готов к КВ"}</p>
                 </article>
               ))}
+            </div>
+          </section>
+        ) : null}
+
+        {activeSection === "squads" ? (
+          <section className="dashboard-section panel sc-dashboard-section">
+            <div className="dashboard-head">
+              <div>
+                <span className="eyebrow sc-eyebrow">CW Squads</span>
+                <h2>Отряды для КВ</h2>
+                <p className="muted">Лидер, полковник или офицер может создать отряды и раскидать игроков клана перед КВ.</p>
+              </div>
+              <span className="badge muted">{status || `${squads.length} squad(s)`}</span>
+            </div>
+
+            <div className="section sc-inner-section">
+              <h3>Создать отряд</h3>
+              <div className="form-grid">
+                <div className="field">
+                  <label>Название</label>
+                  <input value={squadForm.name} onChange={(event) => setSquadForm({ ...squadForm, name: event.target.value })} placeholder="Альфа / Барс / Разведка" />
+                </div>
+                <div className="field">
+                  <label>Голосовой канал</label>
+                  <select value={squadForm.voice_channel_id} onChange={(event) => setSquadForm({ ...squadForm, voice_channel_id: event.target.value })}>
+                    <option value="">Не привязывать</option>
+                    {channelOptions.map((channel: any) => (
+                      <option key={`voice-${channel.channel_id}`} value={channel.channel_id}>
+                        {channel.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field" style={{ gridColumn: "1 / -1" }}>
+                  <label>Описание</label>
+                  <input value={squadForm.description} onChange={(event) => setSquadForm({ ...squadForm, description: event.target.value })} placeholder="Задача отряда, состав, роль на КВ" />
+                </div>
+              </div>
+              <button className="primary-button sc-primary" onClick={createSquad} type="button">Создать отряд</button>
+            </div>
+
+            <div className="sc-squad-grid">
+              {squads.length > 0 ? squads.map((squad) => {
+                const assigned = membersBySquad.get(squad.id) || [];
+                return (
+                  <article className="sc-squad-card" key={squad.id}>
+                    <div className="dashboard-head">
+                      <div>
+                        <span className="eyebrow sc-eyebrow">Squad</span>
+                        <h3>{squad.name}</h3>
+                        <p className="muted">{squad.description || "Описание не задано"}</p>
+                      </div>
+                      <button className="ghost-button sc-danger-button" onClick={() => deleteSquad(squad.id)} type="button">Удалить</button>
+                    </div>
+
+                    <div className="field">
+                      <label>Добавить игрока клана</label>
+                      <select defaultValue="" onChange={(event) => {
+                        void assignSquadMember(squad.id, event.target.value);
+                        event.currentTarget.value = "";
+                      }}>
+                        <option value="">Выбери игрока</option>
+                        {(data.clanMembers || []).map((member: any) => (
+                          <option key={`${squad.id}-${member.discord_user_id}`} value={member.discord_user_id}>
+                            {member.character_name || member.discord_user_id}{member.rank ? ` · ${member.rank}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="sc-squad-member-list">
+                      {assigned.length > 0 ? assigned.map((member) => (
+                        <div className="sc-squad-member" key={`${squad.id}-${member.discord_user_id}`}>
+                          <span>
+                            <strong>{member.character_name || member.discord_user_id}</strong>
+                            <small>{member.discord_user_id}</small>
+                          </span>
+                          <button className="ghost-button" onClick={() => removeSquadMember(squad.id, member.discord_user_id)} type="button">Убрать</button>
+                        </div>
+                      )) : <p className="panel-note">В отряде пока нет игроков.</p>}
+                    </div>
+                  </article>
+                );
+              }) : (
+                <article className="panel-note">Отряды ещё не созданы. Создай первый отряд и добавь игроков из состава клана.</article>
+              )}
             </div>
           </section>
         ) : null}

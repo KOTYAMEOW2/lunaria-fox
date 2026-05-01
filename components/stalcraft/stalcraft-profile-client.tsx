@@ -6,9 +6,22 @@ import type { StalcraftCharacterCacheRow, StalcraftProfileRow } from "@/lib/stal
 type Props = {
   profile: StalcraftProfileRow | null;
   characters: StalcraftCharacterCacheRow[];
+  friends: Array<{
+    friend_discord_user_id: string;
+    game_friend_name: string | null;
+    synced_at: string | null;
+    player: {
+      exbo_display_login: string | null;
+      selected_character_name: string | null;
+      selected_region: string | null;
+      selected_clan_name: string | null;
+      selected_clan_rank: string | null;
+      synced_at: string | null;
+    } | null;
+  }>;
 };
 
-export function StalcraftProfileClient({ profile, characters }: Props) {
+export function StalcraftProfileClient({ profile, characters, friends }: Props) {
   const [status, setStatus] = useState("");
   const [selected, setSelected] = useState(profile?.selected_character_id || "");
 
@@ -80,6 +93,41 @@ export function StalcraftProfileClient({ profile, characters }: Props) {
       ) : null}
 
       {status ? <p className="page-alert">{status}</p> : null}
+
+      {profile ? (
+        <div className="section">
+          <div className="dashboard-head">
+            <div>
+              <span className="eyebrow sc-eyebrow">Registered friends</span>
+              <h3>Друзья STALCRAFT, которые уже есть в Lunaria Fox</h3>
+              <p className="muted">
+                Список строится только из тех друзей, которых EXBO отдаёт в профиле и которые тоже привязали аккаунт на сайте.
+              </p>
+            </div>
+            <span className="badge muted">{friends.length} friend(s)</span>
+          </div>
+          <div className="sc-friends-grid">
+            {friends.length > 0 ? friends.map((friend) => (
+              <article className="activity-card" key={friend.friend_discord_user_id}>
+                <div className="activity-card-head">
+                  <span className="badge success">registered</span>
+                  <span className="activity-time">{friend.player?.selected_region || "SC"}</span>
+                </div>
+                <strong>{friend.player?.selected_character_name || friend.game_friend_name || friend.player?.exbo_display_login || friend.friend_discord_user_id}</strong>
+                <p>
+                  {friend.player?.selected_clan_name || "Клан не выбран"}
+                  {friend.player?.selected_clan_rank ? ` · ${friend.player.selected_clan_rank}` : ""}
+                </p>
+              </article>
+            )) : (
+              <p className="panel-note">
+                Зарегистрированные друзья пока не найдены. Если EXBO не отдаёт список друзей в OAuth-профиле, бот покажет только тех,
+                кого удалось сопоставить через доступные данные API.
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

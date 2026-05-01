@@ -17,6 +17,11 @@ const sectionCopy: Record<ScDashboardSection, { eyebrow: string; title: string; 
     title: "Посещения КВ",
     description: "Отметки участников, отсутствия и причины, которые бот собирает через кнопки Discord.",
   },
+  squads: {
+    eyebrow: "CW Squads",
+    title: "Отряды КВ",
+    description: "Создание отрядов и распределение игроков клана перед турниром или потасовкой.",
+  },
   tabs: {
     eyebrow: "CW Tabs",
     title: "Табы и итоги КВ",

@@ -2630,6 +2630,61 @@ body {
   background: rgba(155, 124, 255, 0.08);
 }
 
+.sc-friends-grid,
+.sc-squad-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.sc-friends-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sc-squad-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sc-squad-card {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(184, 146, 255, 0.22);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(184, 146, 255, 0.14), transparent 28%),
+    linear-gradient(180deg, rgba(9, 8, 18, 0.94), rgba(2, 7, 6, 0.93)),
+    rgba(255, 255, 255, 0.02);
+}
+
+.sc-squad-member-list {
+  display: grid;
+  gap: 10px;
+}
+
+.sc-squad-member {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(229, 221, 255, 0.1);
+  background:
+    linear-gradient(135deg, rgba(155, 124, 255, 0.1), rgba(0, 0, 0, 0.18)),
+    rgba(255, 255, 255, 0.03);
+}
+
+.sc-squad-member span {
+  display: grid;
+  gap: 4px;
+}
+
+.sc-squad-member small {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
 .sc-auth-refresh-panel {
   margin-bottom: 18px;
   border-color: rgba(155, 124, 255, 0.24);
@@ -2674,6 +2729,11 @@ body {
   }
 
   .sc-route-step {
+    grid-template-columns: 1fr;
+  }
+
+  .sc-friends-grid,
+  .sc-squad-grid {
     grid-template-columns: 1fr;
   }
 }
