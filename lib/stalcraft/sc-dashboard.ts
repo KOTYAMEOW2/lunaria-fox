@@ -377,19 +377,25 @@ export async function getClanDashboardForUser(session: DiscordSession, clanId: s
     throw new Error("Forbidden");
   }
 
-  const [clan, stats, sessions, logs] = await Promise.all([
+  const [clan, stats, sessions, resultAudits] = await Promise.all([
     supabase().from("sc_clans").select("*").eq("clan_id", clanId).maybeSingle(),
     supabase().from("sc_clan_attendance_stats").select("*").eq("clan_id", clanId).order("character_name"),
     supabase().from("sc_cw_sessions").select("*").eq("clan_id", clanId).order("cw_date", { ascending: false }).limit(20),
-    supabase().from("sc_logs").select("*").eq("clan_id", clanId).order("created_at", { ascending: false }).limit(30),
+    supabase().from("sc_cw_result_audit").select("*").eq("clan_id", clanId).order("published_at", { ascending: false }).limit(10),
   ]);
+  const statRows = stats.data || [];
+  const memberIds = statRows.map((row: any) => row.discord_user_id).filter(Boolean);
+  const { data: equipment } = memberIds.length
+    ? await supabase().from("sc_equipment").select("*").in("discord_user_id", memberIds)
+    : { data: [] as any[] };
 
   return {
     player,
     member,
     clan: clan.data || null,
-    stats: stats.data || [],
+    stats: statRows,
     sessions: sessions.data || [],
-    logs: logs.data || [],
+    resultAudits: resultAudits.data || [],
+    equipment: equipment || [],
   };
 }
