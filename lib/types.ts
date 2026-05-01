@@ -3,7 +3,7 @@ export type DiscordSession = {
   username: string;
   globalName: string | null;
   avatar: string | null;
-  accessToken: string;
+  accessToken: string | null;
   expiresAt: number;
 };
 

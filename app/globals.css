@@ -2455,6 +2455,22 @@ body {
   background: rgba(155, 124, 255, 0.08);
 }
 
+.sc-auth-refresh-panel {
+  margin-bottom: 18px;
+  border-color: rgba(155, 124, 255, 0.24);
+  background:
+    linear-gradient(135deg, rgba(155, 124, 255, 0.14), rgba(229, 221, 255, 0.05)),
+    rgba(5, 4, 12, 0.88);
+}
+
+.sc-auth-refresh-panel h2 {
+  margin: 12px 0 8px;
+}
+
+.sc-auth-refresh-panel p {
+  margin: 0 0 16px;
+}
+
 @keyframes sc-sweep {
   from {
     transform: rotate(0deg);

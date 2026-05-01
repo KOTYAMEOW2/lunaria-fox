@@ -35,6 +35,7 @@ function supabase() {
 
 export async function getScManagedGuilds(session: DiscordSession | null): Promise<ScManagedGuild[]> {
   if (!session) return [];
+  if (!session.accessToken) return [];
 
   const discordGuilds = (await fetchDiscordGuilds(session.accessToken)).filter(canManageGuild);
   if (discordGuilds.length === 0) return [];

@@ -3,6 +3,10 @@ import { isOwnerSession } from "@/lib/auth/owners";
 import type { DiscordSession } from "@/lib/types";
 
 export async function getManageableGuildIds(session: DiscordSession) {
+  if (!session.accessToken) {
+    throw new Error("Discord reauthorization required.");
+  }
+
   const guilds = await fetchDiscordGuilds(session.accessToken);
   return new Set(guilds.filter(canManageGuild).map((guild) => guild.id));
 }

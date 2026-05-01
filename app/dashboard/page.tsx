@@ -11,6 +11,7 @@ export default async function DashboardPage() {
   if (!session) redirect("/api/auth/discord/login");
 
   const guilds = await getScManagedGuilds(session);
+  const needsDiscordReconnect = !session.accessToken;
 
   return (
     <section className="page-shell sc-page-shell">
@@ -20,6 +21,19 @@ export default async function DashboardPage() {
           <h1>Выбери сервер клана</h1>
           <p>Настрой каналы, роли, КВ, табы и выбросы для выбранного Discord-сервера.</p>
         </div>
+
+        {needsDiscordReconnect ? (
+          <div className="panel sc-auth-refresh-panel">
+            <span className="eyebrow sc-eyebrow">Discord access</span>
+            <h2>Вход сохранён, но Discord-доступ нужно обновить</h2>
+            <p className="muted">
+              Supabase-сессия активна, поэтому аккаунт не сброшен. Для списка серверов Discord нужен свежий Discord token.
+            </p>
+            <a className="primary-button sc-primary" href="/api/auth/discord/login?next=/dashboard">
+              Обновить Discord-вход
+            </a>
+          </div>
+        ) : null}
 
         <div className="guild-grid sc-guild-grid">
           {guilds.map((guild) => (

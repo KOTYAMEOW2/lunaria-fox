@@ -78,34 +78,34 @@ export async function getSession() {
   }
 
   const providerToken = sessionData.session?.provider_token || null;
-  if (!providerToken) {
+  const metadataFallback = buildMetadataFallback(userData.user);
+
+  if (providerToken) {
+    try {
+      const discordUser = await fetchDiscordUser(providerToken);
+      return {
+        userId: discordUser.id,
+        username: discordUser.username,
+        globalName: discordUser.globalName,
+        avatar: discordUser.avatar,
+        accessToken: providerToken,
+        expiresAt: (sessionData.session?.expires_at || 0) * 1000,
+      } satisfies DiscordSession;
+    } catch {
+      // Keep the Supabase login alive even if the Discord provider token expired.
+    }
+  }
+
+  if (!metadataFallback.userId) {
     return null;
   }
 
-  const metadataFallback = buildMetadataFallback(userData.user);
-
-  try {
-    const discordUser = await fetchDiscordUser(providerToken);
-    return {
-      userId: discordUser.id,
-      username: discordUser.username,
-      globalName: discordUser.globalName,
-      avatar: discordUser.avatar,
-      accessToken: providerToken,
-      expiresAt: (sessionData.session?.expires_at || 0) * 1000,
-    } satisfies DiscordSession;
-  } catch {
-    if (!metadataFallback.userId) {
-      return null;
-    }
-
-    return {
-      userId: metadataFallback.userId,
-      username: metadataFallback.username,
-      globalName: metadataFallback.globalName,
-      avatar: metadataFallback.avatar,
-      accessToken: providerToken,
-      expiresAt: (sessionData.session?.expires_at || 0) * 1000,
-    } satisfies DiscordSession;
-  }
+  return {
+    userId: metadataFallback.userId,
+    username: metadataFallback.username,
+    globalName: metadataFallback.globalName,
+    avatar: metadataFallback.avatar,
+    accessToken: providerToken,
+    expiresAt: (sessionData.session?.expires_at || 0) * 1000,
+  } satisfies DiscordSession;
 }
