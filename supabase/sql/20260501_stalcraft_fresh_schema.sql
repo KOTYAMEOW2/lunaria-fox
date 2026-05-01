@@ -27,8 +27,11 @@ drop table if exists
   public.sc_discord_roles,
   public.sc_guild_settings,
   public.sc_roles,
+  public.sc_cw_squad_members,
+  public.sc_cw_squads,
   public.sc_clan_access,
   public.sc_clan_members,
+  public.sc_friends,
   public.sc_character_cache,
   public.sc_equipment,
   public.sc_profile_showcases,
@@ -39,6 +42,8 @@ drop table if exists
   public.sc_emission_state,
   public.sc_logs,
   public.sc_videos,
+  public.sc_game_transactions,
+  public.sc_game_balances,
   public.sc_players,
   public.sc_clans,
   public.sc_guilds
@@ -63,6 +68,28 @@ create table public.sc_guilds (
   bot_left_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table public.sc_game_balances (
+  guild_id text not null references public.sc_guilds(guild_id) on delete cascade,
+  discord_user_id text not null,
+  balance bigint not null default 0 check (balance >= 0),
+  daily_streak integer not null default 0 check (daily_streak >= 0),
+  last_daily_at timestamptz,
+  last_moment_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (guild_id, discord_user_id)
+);
+
+create table public.sc_game_transactions (
+  id uuid primary key default gen_random_uuid(),
+  guild_id text not null references public.sc_guilds(guild_id) on delete cascade,
+  discord_user_id text not null,
+  amount bigint not null,
+  reason text not null,
+  meta jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
 );
 
 create table public.sc_guild_admins (
@@ -139,6 +166,18 @@ create table public.sc_players (
   synced_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table public.sc_friends (
+  discord_user_id text not null references public.sc_players(discord_user_id) on delete cascade,
+  friend_discord_user_id text not null references public.sc_players(discord_user_id) on delete cascade,
+  source text not null default 'exbo',
+  game_friend_name text,
+  matched_by text,
+  synced_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  primary key (discord_user_id, friend_discord_user_id),
+  check (discord_user_id <> friend_discord_user_id)
 );
 
 create table public.sc_guild_settings (
@@ -284,6 +323,29 @@ create table public.sc_cw_sessions (
   unique (guild_id, cw_date)
 );
 
+create table public.sc_cw_squads (
+  id uuid primary key default gen_random_uuid(),
+  guild_id text not null references public.sc_guilds(guild_id) on delete cascade,
+  clan_id text references public.sc_clans(clan_id) on delete set null,
+  session_id uuid references public.sc_cw_sessions(id) on delete set null,
+  name text not null,
+  description text,
+  voice_channel_id text,
+  created_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.sc_cw_squad_members (
+  squad_id uuid not null references public.sc_cw_squads(id) on delete cascade,
+  discord_user_id text not null references public.sc_players(discord_user_id) on delete cascade,
+  character_name text,
+  assigned_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (squad_id, discord_user_id)
+);
+
 create table public.sc_cw_attendance (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.sc_cw_sessions(id) on delete cascade,
@@ -412,12 +474,17 @@ create index sc_guild_settings_clan_idx on public.sc_guild_settings(clan_id);
 create index sc_guild_admins_user_idx on public.sc_guild_admins(discord_user_id);
 create index sc_discord_channels_guild_idx on public.sc_discord_channels(guild_id, position);
 create index sc_discord_roles_guild_idx on public.sc_discord_roles(guild_id, position desc);
+create index sc_game_transactions_user_idx on public.sc_game_transactions(guild_id, discord_user_id, created_at desc);
 create index sc_players_auth_idx on public.sc_players(auth_user_id);
 create index sc_players_selected_clan_idx on public.sc_players(selected_clan_id);
 create index sc_players_clan_idx on public.sc_players(clan_id);
+create index sc_friends_friend_idx on public.sc_friends(friend_discord_user_id);
 create index sc_character_cache_clan_idx on public.sc_character_cache(clan_id);
 create index sc_clan_members_discord_idx on public.sc_clan_members(discord_user_id);
 create index sc_cw_sessions_guild_date_idx on public.sc_cw_sessions(guild_id, cw_date desc);
+create index sc_cw_squads_guild_idx on public.sc_cw_squads(guild_id, updated_at desc);
+create index sc_cw_squads_clan_idx on public.sc_cw_squads(clan_id);
+create index sc_cw_squad_members_user_idx on public.sc_cw_squad_members(discord_user_id);
 create index sc_cw_attendance_session_idx on public.sc_cw_attendance(session_id, status);
 create index sc_cw_attendance_guild_idx on public.sc_cw_attendance(guild_id, status);
 create index sc_cw_result_queue_guild_idx on public.sc_cw_result_queue(guild_id, created_at desc);
@@ -437,6 +504,7 @@ end;
 $$;
 
 create trigger sc_guilds_touch before update on public.sc_guilds for each row execute function public.touch_updated_at();
+create trigger sc_game_balances_touch before update on public.sc_game_balances for each row execute function public.touch_updated_at();
 create trigger sc_clans_touch before update on public.sc_clans for each row execute function public.touch_updated_at();
 create trigger sc_guild_settings_touch before update on public.sc_guild_settings for each row execute function public.touch_updated_at();
 create trigger sc_roles_touch before update on public.sc_roles for each row execute function public.touch_updated_at();
@@ -446,6 +514,8 @@ create trigger sc_clan_members_touch before update on public.sc_clan_members for
 create trigger sc_equipment_touch before update on public.sc_equipment for each row execute function public.touch_updated_at();
 create trigger sc_profile_showcases_touch before update on public.sc_profile_showcases for each row execute function public.touch_updated_at();
 create trigger sc_cw_sessions_touch before update on public.sc_cw_sessions for each row execute function public.touch_updated_at();
+create trigger sc_cw_squads_touch before update on public.sc_cw_squads for each row execute function public.touch_updated_at();
+create trigger sc_cw_squad_members_touch before update on public.sc_cw_squad_members for each row execute function public.touch_updated_at();
 create trigger sc_cw_attendance_touch before update on public.sc_cw_attendance for each row execute function public.touch_updated_at();
 create trigger sc_emission_state_touch before update on public.sc_emission_state for each row execute function public.touch_updated_at();
 create trigger sc_admin_bot_actions_touch before update on public.sc_admin_bot_actions for each row execute function public.touch_updated_at();
@@ -596,14 +666,19 @@ begin
     'sc_discord_roles',
     'sc_guild_settings',
     'sc_roles',
+    'sc_game_balances',
+    'sc_game_transactions',
     'sc_clans',
     'sc_players',
+    'sc_friends',
     'sc_character_cache',
     'sc_clan_members',
     'sc_clan_access',
     'sc_equipment',
     'sc_profile_showcases',
     'sc_cw_sessions',
+    'sc_cw_squads',
+    'sc_cw_squad_members',
     'sc_cw_attendance',
     'sc_cw_result_queue',
     'sc_cw_result_audit',
@@ -695,6 +770,21 @@ create policy players_own_delete on public.sc_players
 for delete to authenticated
 using (discord_user_id = public.current_discord_id() or auth_user_id = auth.uid());
 
+create policy game_balances_own_select on public.sc_game_balances
+for select to authenticated
+using (discord_user_id = public.current_discord_id());
+
+create policy game_transactions_own_select on public.sc_game_transactions
+for select to authenticated
+using (discord_user_id = public.current_discord_id());
+
+create policy friends_own_select on public.sc_friends
+for select to authenticated
+using (
+  discord_user_id = public.current_discord_id()
+  or friend_discord_user_id = public.current_discord_id()
+);
+
 create policy character_cache_read on public.sc_character_cache
 for select to authenticated
 using (
@@ -780,6 +870,63 @@ using (
 with check (
   public.has_guild_access(guild_id, 'officer')
   or public.has_clan_access(clan_id, 'officer')
+);
+
+create policy cw_squads_read_access on public.sc_cw_squads
+for select to authenticated
+using (
+  public.has_guild_access(guild_id, 'member')
+  or public.has_clan_access(clan_id, 'member')
+);
+
+create policy cw_squads_write_officers on public.sc_cw_squads
+for all to authenticated
+using (
+  public.has_guild_access(guild_id, 'officer')
+  or public.has_clan_access(clan_id, 'officer')
+)
+with check (
+  public.has_guild_access(guild_id, 'officer')
+  or public.has_clan_access(clan_id, 'officer')
+);
+
+create policy cw_squad_members_read_access on public.sc_cw_squad_members
+for select to authenticated
+using (
+  exists (
+    select 1
+    from public.sc_cw_squads squad
+    where squad.id = squad_id
+      and (
+        public.has_guild_access(squad.guild_id, 'member')
+        or public.has_clan_access(squad.clan_id, 'member')
+      )
+  )
+);
+
+create policy cw_squad_members_write_officers on public.sc_cw_squad_members
+for all to authenticated
+using (
+  exists (
+    select 1
+    from public.sc_cw_squads squad
+    where squad.id = squad_id
+      and (
+        public.has_guild_access(squad.guild_id, 'officer')
+        or public.has_clan_access(squad.clan_id, 'officer')
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.sc_cw_squads squad
+    where squad.id = squad_id
+      and (
+        public.has_guild_access(squad.guild_id, 'officer')
+        or public.has_clan_access(squad.clan_id, 'officer')
+      )
+  )
 );
 
 create policy attendance_read on public.sc_cw_attendance
