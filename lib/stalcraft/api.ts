@@ -19,6 +19,11 @@ function getOptionalEnv(name: string, fallback = "") {
   return String(process.env[name] || fallback).trim();
 }
 
+function cleanOptionalText(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text || null;
+}
+
 export function isStalcraftOAuthConfigured() {
   return Boolean(getOptionalEnv("EXBO_CLIENT_ID") && getOptionalEnv("EXBO_CLIENT_SECRET"));
 }
@@ -128,8 +133,9 @@ export async function fetchStalcraftCharacters(
       const info = item.information || (item as any);
       const clanInfo = item.clan?.info || null;
       const clanMember = item.clan?.member || null;
-      const id = String(info.id || "").trim();
-      const name = String(info.name || "").trim();
+      const id = cleanOptionalText(info.id);
+      const name = cleanOptionalText(info.name);
+      const clanId = cleanOptionalText(clanInfo?.id);
 
       if (!id || !name) return null;
 
@@ -138,14 +144,14 @@ export async function fetchStalcraftCharacters(
         region,
         character_id: id,
         character_name: name,
-        character_created_at: info.creationTime || null,
-        clan_id: clanInfo?.id || null,
-        clan_name: clanInfo?.name || null,
+        character_created_at: cleanOptionalText(info.creationTime),
+        clan_id: clanId,
+        clan_name: cleanOptionalText(clanInfo?.name),
         clan_level: clanInfo?.level ?? null,
-        clan_alliance: clanInfo?.alliance || null,
-        clan_leader: clanInfo?.leader || null,
-        clan_rank: clanMember?.rank || null,
-        clan_joined_at: clanMember?.joinTime || null,
+        clan_alliance: cleanOptionalText(clanInfo?.alliance),
+        clan_leader: cleanOptionalText(clanInfo?.leader),
+        clan_rank: cleanOptionalText(clanMember?.rank),
+        clan_joined_at: cleanOptionalText(clanMember?.joinTime),
         raw: item,
         updated_at: now,
       } satisfies StalcraftCharacterCacheRow;

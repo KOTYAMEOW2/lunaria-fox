@@ -25,6 +25,11 @@ function tokenExpiry(expiresIn: number) {
   return new Date(Date.now() + Math.max(0, expiresIn - 60) * 1000).toISOString();
 }
 
+function cleanOptionalText(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text || null;
+}
+
 function buildClanRowsFromCharacters(rows: StalcraftCharacterCacheRow[]) {
   const now = new Date().toISOString();
   const clans = new Map<
@@ -41,10 +46,10 @@ function buildClanRowsFromCharacters(rows: StalcraftCharacterCacheRow[]) {
   >();
 
   for (const row of rows) {
-    const clanId = row.clan_id?.trim();
+    const clanId = cleanOptionalText(row.clan_id);
     if (!clanId || clans.has(clanId)) continue;
 
-    const clanName = row.clan_name?.trim() || clanId;
+    const clanName = cleanOptionalText(row.clan_name) || clanId;
     clans.set(clanId, {
       clan_id: clanId,
       external_clan_id: clanId,
@@ -83,7 +88,7 @@ function buildClanMemberRowsFromCharacters(discordUserId: string, rows: Stalcraf
   >();
 
   for (const row of rows) {
-    const clanId = row.clan_id?.trim();
+    const clanId = cleanOptionalText(row.clan_id);
     if (!clanId) continue;
 
     members.set(`${clanId}:${discordUserId}`, {
@@ -104,7 +109,7 @@ function buildClanAccessRowsFromCharacters(discordUserId: string, rows: Stalcraf
   const access = new Map<string, { clan_id: string; discord_user_id: string; access_level: string; granted_by: string }>();
 
   for (const row of rows) {
-    const clanId = row.clan_id?.trim();
+    const clanId = cleanOptionalText(row.clan_id);
     if (!clanId) continue;
     access.set(`${clanId}:${discordUserId}`, {
       clan_id: clanId,
@@ -253,6 +258,7 @@ export async function syncStalcraftCharacters(discordUserId: string) {
   const supabase = requireSupabase();
   const accessToken = await ensureFreshStalcraftAccessToken(profile);
   const characterRows: StalcraftCharacterCacheRow[] = [];
+  let savedCharacterRows: StalcraftCharacterCacheRow[] = [];
   const failures: string[] = [];
 
   for (const region of STALCRAFT_REGIONS) {
@@ -271,15 +277,32 @@ export async function syncStalcraftCharacters(discordUserId: string) {
   }
 
   if (characterRows.length > 0) {
+    let writableCharacterRows = characterRows.map((row) => ({
+      ...row,
+      clan_id: cleanOptionalText(row.clan_id),
+      clan_name: cleanOptionalText(row.clan_name),
+    }));
     const clanRows = buildClanRowsFromCharacters(characterRows);
     if (clanRows.length > 0) {
       const { error: clanError } = await supabase.from("sc_clans").upsert(clanRows, {
         onConflict: "clan_id",
       });
       if (clanError) throw clanError;
+
+      const { data: persistedClans, error: clanReadError } = await supabase
+        .from("sc_clans")
+        .select("clan_id")
+        .in("clan_id", clanRows.map((row) => row.clan_id));
+      if (clanReadError) throw clanReadError;
+
+      const knownClanIds = new Set((persistedClans || []).map((row: any) => String(row.clan_id)));
+      writableCharacterRows = writableCharacterRows.map((row) => ({
+        ...row,
+        clan_id: row.clan_id && knownClanIds.has(row.clan_id) ? row.clan_id : null,
+      }));
     }
 
-    const memberRows = buildClanMemberRowsFromCharacters(discordUserId, characterRows);
+    const memberRows = buildClanMemberRowsFromCharacters(discordUserId, writableCharacterRows);
     if (memberRows.length > 0) {
       const { error: memberError } = await supabase.from("sc_clan_members").upsert(memberRows, {
         onConflict: "clan_id,discord_user_id",
@@ -287,7 +310,7 @@ export async function syncStalcraftCharacters(discordUserId: string) {
       if (memberError) throw memberError;
     }
 
-    const accessRows = buildClanAccessRowsFromCharacters(discordUserId, characterRows);
+    const accessRows = buildClanAccessRowsFromCharacters(discordUserId, writableCharacterRows);
     if (accessRows.length > 0) {
       const { error: accessError } = await supabase.from("sc_clan_access").upsert(accessRows, {
         onConflict: "clan_id,discord_user_id",
@@ -295,17 +318,18 @@ export async function syncStalcraftCharacters(discordUserId: string) {
       if (accessError) throw accessError;
     }
 
-    const { error } = await supabase.from("sc_character_cache").upsert(characterRows, {
+    const { error } = await supabase.from("sc_character_cache").upsert(writableCharacterRows, {
       onConflict: "discord_user_id,region,character_id",
     });
     if (error) throw error;
 
-    await syncRegisteredFriends(discordUserId, characterRows).catch((error) => {
+    await syncRegisteredFriends(discordUserId, writableCharacterRows).catch((error) => {
       console.warn("[stalcraft] registered friends sync skipped:", error instanceof Error ? error.message : error);
     });
+    savedCharacterRows = writableCharacterRows;
   }
 
-  return characterRows;
+  return savedCharacterRows.length > 0 ? savedCharacterRows : characterRows;
 }
 
 export async function listStalcraftCharacters(discordUserId: string) {
