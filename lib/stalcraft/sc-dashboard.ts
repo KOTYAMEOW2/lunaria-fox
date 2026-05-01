@@ -27,10 +27,18 @@ export type ScGuildDashboardData = {
   emission: any | null;
 };
 
+const BOT_GUILD_STALE_MS = 20 * 60 * 1000;
+
 function supabase() {
   const client = getSupabaseAdmin();
   if (!client) throw new Error("Supabase is not configured.");
   return client;
+}
+
+function isFreshBotGuild(row: any) {
+  if (!row || row.is_available === false) return false;
+  const updatedAt = row.updated_at ? Date.parse(row.updated_at) : 0;
+  return Number.isFinite(updatedAt) && Date.now() - updatedAt <= BOT_GUILD_STALE_MS;
 }
 
 export async function getScManagedGuilds(session: DiscordSession | null): Promise<ScManagedGuild[]> {
@@ -44,7 +52,7 @@ export async function getScManagedGuilds(session: DiscordSession | null): Promis
   const [{ data: indexed }, { data: settings }] = await Promise.all([
     supabase()
       .from("sc_guilds")
-      .select("guild_id, name, icon, member_count, is_available")
+      .select("guild_id, name, icon, member_count, is_available, updated_at")
       .in("guild_id", guildIds),
     supabase()
       .from("sc_guild_settings")
@@ -58,14 +66,15 @@ export async function getScManagedGuilds(session: DiscordSession | null): Promis
   return discordGuilds.map((guild) => {
     const tracked = indexedById.get(guild.id);
     const config = settingsById.get(guild.id);
+    const installed = isFreshBotGuild(tracked);
     return {
       id: guild.id,
       name: tracked?.name || guild.name,
       icon: tracked?.icon || guild.icon || null,
-      installed: Boolean(tracked),
+      installed,
       memberCount: Number(tracked?.member_count || 0),
       clanName: config?.clan_name || config?.community_name || null,
-      isAvailable: tracked?.is_available !== false,
+      isAvailable: installed,
     };
   });
 }
