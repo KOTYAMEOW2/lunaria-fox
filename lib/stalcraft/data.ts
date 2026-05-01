@@ -25,6 +25,40 @@ function tokenExpiry(expiresIn: number) {
   return new Date(Date.now() + Math.max(0, expiresIn - 60) * 1000).toISOString();
 }
 
+function buildClanRowsFromCharacters(rows: StalcraftCharacterCacheRow[]) {
+  const now = new Date().toISOString();
+  const clans = new Map<
+    string,
+    {
+      clan_id: string;
+      external_clan_id: string;
+      clan_name: string;
+      name: string;
+      region: StalcraftRegion;
+      source: string;
+      updated_at: string;
+    }
+  >();
+
+  for (const row of rows) {
+    const clanId = row.clan_id?.trim();
+    if (!clanId || clans.has(clanId)) continue;
+
+    const clanName = row.clan_name?.trim() || clanId;
+    clans.set(clanId, {
+      clan_id: clanId,
+      external_clan_id: clanId,
+      clan_name: clanName,
+      name: clanName,
+      region: row.region,
+      source: "exbo",
+      updated_at: now,
+    });
+  }
+
+  return [...clans.values()];
+}
+
 export async function getStalcraftProfile(discordUserId: string) {
   const supabase = requireSupabase();
   const { data, error } = await supabase
@@ -115,6 +149,14 @@ export async function syncStalcraftCharacters(discordUserId: string) {
   }
 
   if (characterRows.length > 0) {
+    const clanRows = buildClanRowsFromCharacters(characterRows);
+    if (clanRows.length > 0) {
+      const { error: clanError } = await supabase.from("sc_clans").upsert(clanRows, {
+        onConflict: "clan_id",
+      });
+      if (clanError) throw clanError;
+    }
+
     const { error } = await supabase.from("sc_character_cache").upsert(characterRows, {
       onConflict: "discord_user_id,region,character_id",
     });
