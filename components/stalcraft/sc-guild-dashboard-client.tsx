@@ -2,9 +2,12 @@
 
 import { useMemo, useState } from "react";
 
+export type ScDashboardSection = "settings" | "attendance" | "tabs" | "logs";
+
 type Props = {
   guildId: string;
   data: any;
+  activeSection: ScDashboardSection;
 };
 
 const roleKeys = [
@@ -14,6 +17,13 @@ const roleKeys = [
   ["colonel", "SC Полковник"],
   ["officer", "SC Офицер"],
 ] as const;
+
+const navItems: Array<[ScDashboardSection, string, string]> = [
+  ["settings", "Настройки", "settings"],
+  ["attendance", "Посещения", "attendance"],
+  ["tabs", "Табы КВ", "cw-tabs"],
+  ["logs", "SC логи", "logs"],
+];
 
 function toInt(value: string) {
   const parsed = Number.parseInt(value.trim(), 10);
@@ -39,13 +49,39 @@ function parseResultRows(value: string) {
     .filter((row) => row.character_name);
 }
 
-export function ScGuildDashboardClient({ guildId, data }: Props) {
+function uniqueClanOptions(characters: any[]) {
+  const byKey = new Map<string, { key: string; clan_id: string | null; clan_name: string; region: string | null; character_name: string }>();
+
+  for (const character of characters || []) {
+    const clanName = String(character.clan_name || "").trim();
+    if (!clanName) continue;
+    const clanId = character.clan_id ? String(character.clan_id) : null;
+    const region = character.region ? String(character.region) : null;
+    const key = `${region || "ANY"}:${clanId || clanName}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        key,
+        clan_id: clanId,
+        clan_name: clanName,
+        region,
+        character_name: character.character_name || "персонаж",
+      });
+    }
+  }
+
+  return [...byKey.values()].sort((a, b) => a.clan_name.localeCompare(b.clan_name, "ru"));
+}
+
+export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) {
   const [status, setStatus] = useState("");
   const [resultText, setResultText] = useState("");
+  const clanOptions = useMemo(() => uniqueClanOptions(data.userCharacters || []), [data.userCharacters]);
+  const initialClanKey = clanOptions.find((clan) => clan.clan_id && clan.clan_id === data.settings?.clan_id)?.key || "";
   const [settings, setSettings] = useState({
     community_name: data.settings?.community_name || data.guild?.name || "",
     clan_id: data.settings?.clan_id || data.settings?.required_clan_id || "",
     clan_name: data.settings?.clan_name || data.settings?.required_clan_name || "",
+    clan_key: initialClanKey,
     region: data.settings?.region || "",
     cw_post_channel_id: data.settings?.cw_post_channel_id || "",
     absence_channel_id: data.settings?.absence_channel_id || "",
@@ -77,13 +113,31 @@ export function ScGuildDashboardClient({ guildId, data }: Props) {
     };
   }, [data.attendance]);
 
+  function selectClan(key: string) {
+    const clan = clanOptions.find((item) => item.key === key);
+    if (!clan) {
+      setSettings({ ...settings, clan_key: "", clan_id: "", clan_name: "" });
+      return;
+    }
+
+    setSettings({
+      ...settings,
+      clan_key: key,
+      clan_id: clan.clan_id || "",
+      clan_name: clan.clan_name,
+      community_name: settings.community_name || clan.clan_name,
+      region: settings.region || clan.region || "",
+    });
+  }
+
   async function saveSettings() {
-    setStatus("Saving settings...");
+    setStatus("Сохраняю...");
     const response = await fetch(`/api/sc/guilds/${guildId}/settings`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         ...settings,
+        clan_key: undefined,
         clan_id: settings.clan_id || null,
         clan_name: settings.clan_name || null,
         community_name: settings.community_name || null,
@@ -102,23 +156,23 @@ export function ScGuildDashboardClient({ guildId, data }: Props) {
       }),
     });
     const body = await response.json().catch(() => ({}));
-    setStatus(response.ok ? "Settings saved." : body.error || "Save failed.");
+    setStatus(response.ok ? "Сохранено." : body.error || "Ошибка сохранения.");
   }
 
   async function uploadResults() {
     const rows = parseResultRows(resultText);
     if (!rows.length) {
-      setStatus("No result rows found.");
+      setStatus("Строки табов не найдены.");
       return;
     }
-    setStatus("Uploading CW tabs...");
+    setStatus("Загружаю табы...");
     const response = await fetch(`/api/sc/guilds/${guildId}/cw-results`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ rows }),
     });
     const body = await response.json().catch(() => ({}));
-    setStatus(response.ok ? `Uploaded ${body.count || rows.length} row(s).` : body.error || "Upload failed.");
+    setStatus(response.ok ? `Загружено строк: ${body.count || rows.length}.` : body.error || "Ошибка загрузки.");
     if (response.ok) setResultText("");
   }
 
@@ -127,10 +181,11 @@ export function ScGuildDashboardClient({ guildId, data }: Props) {
       <aside className="dashboard-sidebar panel sc-dashboard-sidebar">
         <span className="eyebrow sc-eyebrow">STALCRAFT</span>
         <div className="sidebar-links">
-          <a className="sidebar-link-active" href="#settings">Настройки</a>
-          <a href="#attendance">Посещения</a>
-          <a href="#tabs">Табы КВ</a>
-          <a href="#logs">SC логи</a>
+          {navItems.map(([key, label, slug]) => (
+            <a className={activeSection === key ? "sidebar-link-active" : ""} href={`/dashboard/${guildId}/${slug}`} key={key}>
+              {label}
+            </a>
+          ))}
         </div>
         <div className="panel-note">
           <strong>КВ:</strong> пост в 14:00 МСК, старт в 20:00 МСК.
@@ -138,164 +193,189 @@ export function ScGuildDashboardClient({ guildId, data }: Props) {
       </aside>
 
       <div className="dashboard-sections">
-        <section className="dashboard-section panel sc-dashboard-section" id="settings">
-          <div className="dashboard-head">
-            <div>
-              <span className="eyebrow sc-eyebrow">Clan Operations</span>
-              <h2>Настройки STALCRAFT клана</h2>
+        {activeSection === "settings" ? (
+          <section className="dashboard-section panel sc-dashboard-section">
+            <div className="dashboard-head">
+              <div>
+                <span className="eyebrow sc-eyebrow">Clan Operations</span>
+                <h2>Настройки STALCRAFT клана</h2>
+              </div>
+              <span className="badge muted">{status || "Editing locally"}</span>
             </div>
-            <span className="badge muted">{status || "Editing locally"}</span>
-          </div>
 
-          <div className="form-grid">
-            <div className="field">
-              <label>Название комьюнити</label>
-              <input value={settings.community_name} onChange={(event) => setSettings({ ...settings, community_name: event.target.value })} />
+            <div className="form-grid">
+              <div className="field">
+                <label>Название комьюнити</label>
+                <input value={settings.community_name} onChange={(event) => setSettings({ ...settings, community_name: event.target.value })} />
+              </div>
+              <div className="field">
+                <label>Клан из твоих персонажей</label>
+                <select value={settings.clan_key} onChange={(event) => selectClan(event.target.value)}>
+                  <option value="">Не выбран</option>
+                  {clanOptions.map((clan) => (
+                    <option key={clan.key} value={clan.key}>
+                      [{clan.region || "SC"}] {clan.clan_name} · {clan.character_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>Clan name</label>
+                <input readOnly value={settings.clan_name} placeholder="Выбери клан выше" />
+              </div>
+              <div className="field">
+                <label>Регион</label>
+                <select value={settings.region} onChange={(event) => setSettings({ ...settings, region: event.target.value })}>
+                  <option value="">Не задавать</option>
+                  <option value="RU">RU</option>
+                  <option value="EU">EU</option>
+                  <option value="NA">NA</option>
+                  <option value="SEA">SEA</option>
+                </select>
+              </div>
+            </div>
+
+            {clanOptions.length === 0 ? (
+              <div className="panel-note sc-panel-warning">
+                Сайт пока не видит кланы на твоих персонажах. Открой страницу STALCRAFT, нажми “Обновить персонажей” и выбери персонажа.
+              </div>
+            ) : null}
+
+            <div className="section sc-inner-section">
+              <h3>Каналы Discord</h3>
+              <div className="form-grid">
+                {[
+                  ["cw_post_channel_id", "КВ-пост"],
+                  ["absence_channel_id", "Отсутствия"],
+                  ["results_channel_id", "Итоги"],
+                  ["emission_channel_id", "Выбросы"],
+                  ["logs_channel_id", "Логи Discord"],
+                  ["sc_commands_channel_id", "sc-x-команды"],
+                ].map(([key, label]) => (
+                  <div className="field" key={key}>
+                    <label>{label}</label>
+                    <select value={(settings as any)[key]} onChange={(event) => setSettings({ ...settings, [key]: event.target.value } as any)}>
+                      <option value="">Не выбран</option>
+                      {channelOptions.map((channel: any) => (
+                        <option key={`${key}-${channel.channel_id}`} value={channel.channel_id}>
+                          # {channel.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="section sc-inner-section">
+              <h3>Роли</h3>
+              <div className="form-grid">
+                {roles.map((role, index) => (
+                  <div className="field" key={role.role_key}>
+                    <label>{role.role_name}</label>
+                    <select
+                      value={role.role_id}
+                      onChange={(event) =>
+                        setRoles((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, role_id: event.target.value } : item))
+                      }
+                    >
+                      <option value="">Авто / не выбрана</option>
+                      {roleOptions.map((discordRole: any) => (
+                        <option key={`${role.role_key}-${discordRole.role_id}`} value={discordRole.role_id}>
+                          {discordRole.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <button className="primary-button sc-primary" onClick={saveSettings} type="button">Сохранить настройки</button>
+          </section>
+        ) : null}
+
+        {activeSection === "attendance" ? (
+          <section className="dashboard-section panel sc-dashboard-section">
+            <div className="dashboard-head">
+              <div>
+                <span className="eyebrow sc-eyebrow">CW Attendance</span>
+                <h2>Посещения и отсутствия</h2>
+              </div>
+              <span className="badge success">Участвуют {attendanceSummary.attending} / Отсутствуют {attendanceSummary.absent}</span>
+            </div>
+            <div className="activity-feed-grid">
+              {(data.attendance || []).map((row: any) => (
+                <article className="activity-card" key={row.id}>
+                  <div className="activity-card-head">
+                    <span className={`badge ${row.status === "attending" ? "success" : "warn"}`}>{row.status}</span>
+                    <span className="activity-time">{row.responded_at || "—"}</span>
+                  </div>
+                  <strong>{row.character_name || row.discord_user_id}</strong>
+                  <p>{row.absence_type ? `${row.absence_type}: ${row.absence_reason || "без причины"}` : "Готов к КВ"}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {activeSection === "tabs" ? (
+          <section className="dashboard-section panel sc-dashboard-section">
+            <div className="dashboard-head">
+              <div>
+                <span className="eyebrow sc-eyebrow">CW Tabs</span>
+                <h2>Очередь итогов КВ</h2>
+              </div>
+              <span className="badge muted">{(data.resultQueue || []).length} row(s)</span>
+            </div>
+            <div className="panel-note">
+              Формат строки: <code>ник;kills;deaths;assists;казна;счёт</code>. После команды `/sc-cw publish-results`
+              бот отправит итог в Discord и удалит эти строки из Supabase.
             </div>
             <div className="field">
-              <label>Clan ID</label>
-              <input value={settings.clan_id} onChange={(event) => setSettings({ ...settings, clan_id: event.target.value })} />
+              <label>Добавить табы</label>
+              <textarea value={resultText} onChange={(event) => setResultText(event.target.value)} placeholder="PlayerOne;12;3;5;1000;320" />
             </div>
-            <div className="field">
-              <label>Clan name</label>
-              <input value={settings.clan_name} onChange={(event) => setSettings({ ...settings, clan_name: event.target.value })} />
+            <button className="primary-button sc-primary" onClick={uploadResults} type="button">Загрузить табы</button>
+
+            <div className="activity-feed-grid" style={{ marginTop: 18 }}>
+              {(data.resultQueue || []).map((row: any) => (
+                <article className="activity-card" key={row.id}>
+                  <strong>{row.character_name}</strong>
+                  <p>K/D/A {row.kills}/{row.deaths}/{row.assists} · Казна {row.treasury_spent} · Счёт {row.score}</p>
+                </article>
+              ))}
             </div>
+          </section>
+        ) : null}
+
+        {activeSection === "logs" ? (
+          <section className="dashboard-section panel sc-dashboard-section">
+            <div className="dashboard-head">
+              <div>
+                <span className="eyebrow sc-eyebrow">Discord logs</span>
+                <h2>SC логи публикуются только в Discord</h2>
+              </div>
+              <span className="badge muted">{status || "канал логов"}</span>
+            </div>
+            <p className="muted">
+              Сайт не показывает журнал логов отдельной лентой. Выбери Discord-канал, и бот будет отправлять туда события:
+              привязки игроков, изменения настроек, КВ, табы, выбросы и системные действия.
+            </p>
             <div className="field">
-              <label>Регион</label>
-              <select value={settings.region} onChange={(event) => setSettings({ ...settings, region: event.target.value })}>
-                <option value="">Не задавать</option>
-                <option value="RU">RU</option>
-                <option value="EU">EU</option>
-                <option value="NA">NA</option>
-                <option value="SEA">SEA</option>
+              <label>Канал логов Discord</label>
+              <select value={settings.logs_channel_id} onChange={(event) => setSettings({ ...settings, logs_channel_id: event.target.value })}>
+                <option value="">Не выбран</option>
+                {channelOptions.map((channel: any) => (
+                  <option key={`logs-${channel.channel_id}`} value={channel.channel_id}>
+                    # {channel.name}
+                  </option>
+                ))}
               </select>
             </div>
-          </div>
-
-          <div className="section sc-inner-section">
-            <h3>Каналы</h3>
-            <div className="form-grid">
-              {[
-                ["cw_post_channel_id", "КВ-пост"],
-                ["absence_channel_id", "Отсутствия"],
-                ["results_channel_id", "Итоги"],
-                ["emission_channel_id", "Выбросы"],
-                ["logs_channel_id", "Логи"],
-                ["sc_commands_channel_id", "sc-x-команды"],
-              ].map(([key, label]) => (
-                <div className="field" key={key}>
-                  <label>{label}</label>
-                  <select value={(settings as any)[key]} onChange={(event) => setSettings({ ...settings, [key]: event.target.value } as any)}>
-                    <option value="">Не выбран</option>
-                    {channelOptions.map((channel: any) => (
-                      <option key={`${key}-${channel.channel_id}`} value={channel.channel_id}>
-                        # {channel.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="section sc-inner-section">
-            <h3>Роли</h3>
-            <div className="form-grid">
-              {roles.map((role, index) => (
-                <div className="field" key={role.role_key}>
-                  <label>{role.role_name}</label>
-                  <select
-                    value={role.role_id}
-                    onChange={(event) =>
-                      setRoles((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, role_id: event.target.value } : item))
-                    }
-                  >
-                    <option value="">Авто / не выбрана</option>
-                    {roleOptions.map((discordRole: any) => (
-                      <option key={`${role.role_key}-${discordRole.role_id}`} value={discordRole.role_id}>
-                        {discordRole.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <button className="primary-button sc-primary" onClick={saveSettings} type="button">Сохранить настройки</button>
-        </section>
-
-        <section className="dashboard-section panel sc-dashboard-section" id="attendance">
-          <div className="dashboard-head">
-            <div>
-              <span className="eyebrow sc-eyebrow">CW Attendance</span>
-              <h2>Посещения и отсутствия</h2>
-            </div>
-            <span className="badge success">Участвуют {attendanceSummary.attending} / Отсутствуют {attendanceSummary.absent}</span>
-          </div>
-          <div className="activity-feed-grid">
-            {(data.attendance || []).map((row: any) => (
-              <article className="activity-card" key={row.id}>
-                <div className="activity-card-head">
-                  <span className={`badge ${row.status === "attending" ? "success" : "warn"}`}>{row.status}</span>
-                  <span className="activity-time">{row.responded_at || "—"}</span>
-                </div>
-                <strong>{row.character_name || row.discord_user_id}</strong>
-                <p>{row.absence_type ? `${row.absence_type}: ${row.absence_reason || "без причины"}` : "Готов к КВ"}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="dashboard-section panel sc-dashboard-section" id="tabs">
-          <div className="dashboard-head">
-            <div>
-              <span className="eyebrow sc-eyebrow">CW Tabs</span>
-              <h2>Очередь итогов КВ</h2>
-            </div>
-            <span className="badge muted">{(data.resultQueue || []).length} row(s)</span>
-          </div>
-          <div className="panel-note">
-            Формат строки: <code>ник;kills;deaths;assists;казна;счёт</code>. После команды `/sc-cw publish-results`
-            бот отправит итог в Discord и удалит эти строки из Supabase.
-          </div>
-          <div className="field">
-            <label>Добавить табы</label>
-            <textarea value={resultText} onChange={(event) => setResultText(event.target.value)} placeholder="PlayerOne;12;3;5;1000;320" />
-          </div>
-          <button className="primary-button sc-primary" onClick={uploadResults} type="button">Загрузить табы</button>
-
-          <div className="activity-feed-grid" style={{ marginTop: 18 }}>
-            {(data.resultQueue || []).map((row: any) => (
-              <article className="activity-card" key={row.id}>
-                <strong>{row.character_name}</strong>
-                <p>K/D/A {row.kills}/{row.deaths}/{row.assists} · Казна {row.treasury_spent} · Счёт {row.score}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="dashboard-section panel sc-dashboard-section" id="logs">
-          <div className="dashboard-head">
-            <div>
-              <span className="eyebrow sc-eyebrow">STALCRAFT Logs</span>
-              <h2>Только события по СК</h2>
-            </div>
-            <span className="badge muted">{(data.logs || []).length} latest</span>
-          </div>
-          <div className="activity-feed-grid">
-            {(data.logs || []).map((log: any) => (
-              <article className="activity-card" key={log.id}>
-                <div className="activity-card-head">
-                  <span className="badge muted">{log.event_type}</span>
-                  <span className="activity-time">{log.created_at}</span>
-                </div>
-                <strong>{log.title || log.event_type}</strong>
-                <p>{log.message || "—"}</p>
-              </article>
-            ))}
-          </div>
-        </section>
+            <button className="primary-button sc-primary" onClick={saveSettings} type="button">Сохранить канал логов</button>
+          </section>
+        ) : null}
       </div>
     </div>
   );

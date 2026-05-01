@@ -22,7 +22,7 @@ export default async function StalcraftPage({ searchParams }: { searchParams?: P
         <div className="page-head">
           <span className="eyebrow">STALCRAFT</span>
           <h1>Привязка персонажа STALCRAFT</h1>
-          <p>Эта привязка используется ботом для `/sc-profile`, `/sc-sync`, публикации STALCRAFT Video и проверки клана.</p>
+          <p>Эта привязка используется ботом для `/sc-profile`, `/sc-sync`, проверки клана, ролей и КВ-статистики.</p>
           {params.error ? <p className="page-alert">Ошибка: {params.error}</p> : null}
           {params.linked ? <p className="page-alert">EXBO-профиль привязан. Теперь выбери персонажа.</p> : null}
         </div>
@@ -33,13 +33,13 @@ export default async function StalcraftPage({ searchParams }: { searchParams?: P
             <div>
               <span className="eyebrow">STALCRAFT Servers</span>
               <h2>Серверы, где включён STALCRAFT-модуль</h2>
-              <p className="muted">После включения через Dashboard бот открывает на сервере `/sc-profile`, `/sc-sync`, `/sc-player` и `/sc-video`.</p>
+              <p className="muted">После включения через Dashboard бот открывает на сервере `/sc-profile`, `/sc-sync` и `/sc-player`.</p>
             </div>
           </div>
           <div className="command-grid">
             {communities.length > 0 ? communities.map((community) => (
               <article className="command-card" key={community.guild_id}>
-                <span className="eyebrow">{community.video_enabled ? "Video enabled" : "Video disabled"}</span>
+                <span className="eyebrow">STALCRAFT enabled</span>
                 <h3>{community.community_name || community.guild_name || community.guild_id}</h3>
                 <p>
                   {community.required_clan_name

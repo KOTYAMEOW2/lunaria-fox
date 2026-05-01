@@ -115,7 +115,7 @@ export async function fetchStalcraftCharacters(
   accessToken: string,
 ): Promise<StalcraftCharacterCacheRow[]> {
   const response = await fetch(`${getStalcraftApiBase()}/${region}/characters`, {
-    headers: { authorization: `Bearer ${accessToken}` },
+    headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
     cache: "no-store",
   });
 
@@ -125,7 +125,7 @@ export async function fetchStalcraftCharacters(
 
   return rows
     .map((item) => {
-      const info = item.information || {};
+      const info = item.information || (item as any);
       const clanInfo = item.clan?.info || null;
       const clanMember = item.clan?.member || null;
       const id = String(info.id || "").trim();

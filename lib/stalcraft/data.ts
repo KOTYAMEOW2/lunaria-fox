@@ -11,7 +11,6 @@ import type {
   StalcraftGuildSettingsRow,
   StalcraftProfileRow,
   StalcraftRegion,
-  StalcraftVideoRow,
 } from "@/lib/stalcraft/types";
 
 export const STALCRAFT_REGIONS: StalcraftRegion[] = ["RU", "EU", "NA", "SEA"];
@@ -98,14 +97,21 @@ export async function syncStalcraftCharacters(discordUserId: string) {
   const supabase = requireSupabase();
   const accessToken = await ensureFreshStalcraftAccessToken(profile);
   const characterRows: StalcraftCharacterCacheRow[] = [];
+  const failures: string[] = [];
 
   for (const region of STALCRAFT_REGIONS) {
     try {
       const rows = await fetchStalcraftCharacters(region, accessToken);
       characterRows.push(...rows.map((row) => ({ ...row, discord_user_id: discordUserId })));
     } catch (error) {
-      console.warn(`[stalcraft] character sync failed for ${region}:`, error);
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`${region}: ${message}`);
+      console.warn(`[stalcraft] character sync failed for ${region}:`, message);
     }
+  }
+
+  if (characterRows.length === 0 && failures.length > 0) {
+    throw new Error(`Не удалось считать персонажей STALCRAFT. ${failures.join(" | ")}`);
   }
 
   if (characterRows.length > 0) {
@@ -195,7 +201,6 @@ export async function saveStalcraftGuildSettings(
   payload: {
     enabled: boolean;
     commandsEnabled: boolean;
-    videoEnabled: boolean;
     autoSyncRoles: boolean;
     communityName: string | null;
     requiredClanId: string | null;
@@ -220,7 +225,6 @@ export async function saveStalcraftGuildSettings(
         guild_id: guildId,
         enabled: payload.enabled,
         commands_enabled: payload.commandsEnabled,
-        video_enabled: payload.videoEnabled,
         auto_sync_roles: payload.autoSyncRoles,
         community_name: payload.communityName || profile?.selected_clan_name || profile?.selected_character_name || null,
         clan_id: payload.requiredClanId || profile?.selected_clan_id || null,
@@ -248,7 +252,6 @@ export async function saveStalcraftGuildSettings(
     message: "Dashboard saved STALCRAFT guild settings.",
     payload: {
       stalcraftEnabled: payload.enabled,
-      videoEnabled: payload.videoEnabled,
       autoSyncRoles: payload.autoSyncRoles,
       requiredClanName: payload.requiredClanName || profile?.selected_clan_name || null,
     },
@@ -261,7 +264,7 @@ export async function listEnabledStalcraftCommunities() {
   const supabase = requireSupabase();
   const { data: settings, error } = await supabase
     .from("sc_guild_settings")
-    .select("guild_id, community_name, required_clan_name, video_enabled, verified_role_name, updated_at")
+    .select("guild_id, community_name, required_clan_name, verified_role_name, updated_at")
     .eq("enabled", true)
     .order("updated_at", { ascending: false })
     .limit(80);
@@ -272,7 +275,6 @@ export async function listEnabledStalcraftCommunities() {
     guild_id: string;
     community_name: string | null;
     required_clan_name: string | null;
-    video_enabled: boolean | null;
     verified_role_name: string | null;
     updated_at: string | null;
   }>;
@@ -300,25 +302,8 @@ export async function listEnabledStalcraftCommunities() {
       guild_icon: guild?.icon || null,
       community_name: row.community_name,
       required_clan_name: row.required_clan_name,
-      video_enabled: row.video_enabled,
       verified_role_name: row.verified_role_name,
       updated_at: row.updated_at,
     } satisfies StalcraftCommunityRow;
   });
-}
-
-export async function listVisibleStalcraftVideos(discordUserId: string) {
-  const profile = await getStalcraftProfile(discordUserId);
-  if (!profile?.selected_character_id) return [] as StalcraftVideoRow[];
-
-  const supabase = requireSupabase();
-  const { data, error } = await supabase
-    .from("sc_videos")
-    .select("*")
-    .eq("status", "published")
-    .order("created_at", { ascending: false })
-    .limit(100);
-
-  if (error) throw error;
-  return (data || []) as StalcraftVideoRow[];
 }

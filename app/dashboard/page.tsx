@@ -18,9 +18,7 @@ export default async function DashboardPage() {
         <div className="page-head sc-page-head">
           <span className="eyebrow sc-eyebrow">STALCRAFT Dashboard</span>
           <h1>Выбери сервер клана</h1>
-          <p>
-            Панель теперь управляет только STALCRAFT: КВ, посещения, роли, выбросы, табы, профили и логи.
-          </p>
+          <p>Настрой каналы, роли, КВ, табы и выбросы для выбранного Discord-сервера.</p>
         </div>
 
         <div className="guild-grid sc-guild-grid">
@@ -32,16 +30,16 @@ export default async function DashboardPage() {
                   <p>{guild.clanName || "Клан ещё не выбран"}</p>
                 </div>
                 <span className={`badge ${guild.installed ? "success" : "warn"}`}>
-                  {guild.installed ? "Bot indexed" : "Waiting for bot"}
+                  {guild.installed ? "Бот подключён" : "Бот не найден"}
                 </span>
               </div>
               <p style={{ marginTop: 12 }}>
                 {guild.installed
                   ? `Участников на сервере: ${guild.memberCount}.`
-                  : "Запусти бота, чтобы он записал сервер в sc_guilds."}
+                  : "Добавь Lunaria Fox на сервер и открой эту страницу после синхронизации."}
               </p>
               <div className="stack-actions" style={{ marginTop: 18 }}>
-                <Link className="primary-button sc-primary" href={`/dashboard/${guild.id}`}>
+                <Link className="primary-button sc-primary" href={`/dashboard/${guild.id}/settings`}>
                   Открыть штаб сервера
                 </Link>
               </div>

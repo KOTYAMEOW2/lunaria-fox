@@ -2282,11 +2282,45 @@ body {
   background: rgba(0, 0, 0, 0.34);
 }
 
+.field select {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 44px;
+  background:
+    linear-gradient(135deg, rgba(155, 124, 255, 0.18), rgba(229, 221, 255, 0.06)),
+    linear-gradient(180deg, rgba(8, 5, 18, 0.98), rgba(3, 3, 8, 0.96));
+  background-image:
+    linear-gradient(45deg, transparent 50%, #e7dcff 50%),
+    linear-gradient(135deg, #e7dcff 50%, transparent 50%),
+    linear-gradient(135deg, rgba(155, 124, 255, 0.18), rgba(229, 221, 255, 0.06)),
+    linear-gradient(180deg, rgba(8, 5, 18, 0.98), rgba(3, 3, 8, 0.96));
+  background-position:
+    calc(100% - 21px) 50%,
+    calc(100% - 15px) 50%,
+    0 0,
+    0 0;
+  background-size:
+    6px 6px,
+    6px 6px,
+    auto,
+    auto;
+  background-repeat: no-repeat;
+  border-color: rgba(155, 124, 255, 0.34);
+  box-shadow:
+    inset 0 0 0 1px rgba(229, 221, 255, 0.04),
+    0 12px 24px rgba(6, 3, 14, 0.28);
+}
+
+.field select option {
+  background: #120b22;
+  color: #f5efff;
+}
+
 .field input:focus,
 .field textarea:focus,
 .field select:focus {
-  border-color: rgba(255, 184, 95, 0.46);
-  outline: 2px solid rgba(255, 184, 95, 0.12);
+  border-color: rgba(199, 174, 255, 0.68);
+  outline: 2px solid rgba(155, 124, 255, 0.18);
 }
 
 .activity-card {
@@ -2364,6 +2398,61 @@ body {
   cursor: not-allowed;
   opacity: 0.56;
   transform: none;
+}
+
+.sc-emission-card {
+  min-height: 270px;
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  padding: 22px;
+  border-radius: 24px;
+  border: 1px solid rgba(155, 124, 255, 0.22);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(229, 221, 255, 0.14), transparent 28%),
+    linear-gradient(180deg, rgba(9, 7, 18, 0.94), rgba(2, 4, 4, 0.94));
+}
+
+.sc-emission-card p {
+  margin: 0;
+  color: #d7cee8;
+  line-height: 1.65;
+}
+
+.sc-emission-list {
+  display: grid;
+  gap: 10px;
+}
+
+.sc-emission-row,
+.sc-emission-empty {
+  display: grid;
+  gap: 5px;
+  padding: 13px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(229, 221, 255, 0.12);
+  background:
+    linear-gradient(135deg, rgba(155, 124, 255, 0.13), rgba(0, 0, 0, 0.22)),
+    rgba(255, 255, 255, 0.03);
+}
+
+.sc-emission-row span {
+  color: var(--sc-amber);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.sc-emission-row time,
+.sc-emission-empty span {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.sc-panel-warning {
+  margin-top: 16px;
+  border-color: rgba(155, 124, 255, 0.22);
+  background: rgba(155, 124, 255, 0.08);
 }
 
 @keyframes sc-sweep {

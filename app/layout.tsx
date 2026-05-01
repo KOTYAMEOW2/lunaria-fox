@@ -9,8 +9,8 @@ export const metadata: Metadata = {
   title: `${publicEnv.siteName} | STALCRAFT Operations`,
   description: "STALCRAFT-only сайт и дашборд для кланов, КВ, посещаемости, выбросов и профилей игроков.",
   icons: {
-    icon: "/stalcraft-fox-avatar.png",
-    shortcut: "/stalcraft-fox-avatar.png",
+    icon: "/favicon.png",
+    shortcut: "/favicon.png",
     apple: "/stalcraft-fox-avatar.png",
   },
 };

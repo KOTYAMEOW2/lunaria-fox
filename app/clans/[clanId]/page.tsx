@@ -23,7 +23,7 @@ export default async function ClanDashboardPage({ params }: { params: Promise<{ 
         <div className="page-head">
           <span className="eyebrow">Private Clan Table</span>
           <h1>{data.clan?.clan_name || "STALCRAFT клан"}</h1>
-          <p>Закрытая таблица клана: посещения, отсутствия, активность игроков и последние SC-логи.</p>
+          <p>Закрытая таблица клана: посещения, отсутствия и активность игроков.</p>
         </div>
 
         <section className="panel">
@@ -63,24 +63,11 @@ export default async function ClanDashboardPage({ params }: { params: Promise<{ 
         </section>
 
         <section className="panel" style={{ marginTop: 18 }}>
-          <div className="dashboard-head">
-            <div>
-              <span className="eyebrow">Clan Logs</span>
-              <h2>Последние события клана</h2>
-            </div>
-          </div>
-          <div className="activity-feed-grid">
-            {data.logs.map((log: any) => (
-              <article className="activity-card" key={log.id}>
-                <div className="activity-card-head">
-                  <span className="badge muted">{log.event_type}</span>
-                  <span className="activity-time">{log.created_at}</span>
-                </div>
-                <strong>{log.title || log.event_type}</strong>
-                <p>{log.message || "—"}</p>
-              </article>
-            ))}
-          </div>
+          <span className="eyebrow">Discord Logs</span>
+          <h2>Логи уходят в Discord</h2>
+          <p className="muted">
+            Клановая страница показывает статистику. События бота публикуются в лог-канал Discord, выбранный в настройках сервера.
+          </p>
         </section>
       </div>
     </section>

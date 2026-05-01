@@ -57,11 +57,11 @@ export function SiteHeader() {
         <nav className="header-nav">
           <span className="sc-header-status">SC-only</span>
           <Link className="nav-pill" href="/stalcraft">STALCRAFT</Link>
-          {session?.stalcraftLinked ? <Link className="nav-pill" href="/stalcraft-video">Video</Link> : null}
           <a className="secondary-button" href={publicEnv.inviteUrl} rel="noreferrer" target="_blank">Invite Bot</a>
           {session ? (
             <>
               <a className="ghost-button" href={buildDashboardUrl("/dashboard")}>Dashboard</a>
+              {session.isOwner ? <a className="ghost-button" href="/admin">Admin</a> : null}
               <span className="session-chip">
                 {session.avatar ? <Image alt={session.username} height={28} src={session.avatar} unoptimized width={28} /> : null}
                 <span>{session.globalName || session.username}</span>
