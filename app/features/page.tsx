@@ -19,7 +19,7 @@ export default function FeaturesPage() {
         <div className="page-head">
           <span className="eyebrow">STALCRAFT Features</span>
           <h1>Функции новой Lunaria Fox</h1>
-          <p>Всё лишнее удалено. Остались только инструменты для STALCRAFT-клана.</p>
+          <p>Инструменты для штаба STALCRAFT-клана, ежедневных КВ, состава, профилей и активности игроков.</p>
         </div>
         <div className="grid-3">
           {cards.map(([title, body]) => (

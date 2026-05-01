@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { isOwnerSession } from "@/lib/auth/owners";
+import { isOwnerSessionAsync } from "@/lib/auth/owners";
 import { getSession } from "@/lib/auth/session";
 import { getStalcraftProfile } from "@/lib/stalcraft/data";
 
 export async function GET() {
   const session = await getSession();
-  const owner = isOwnerSession(session);
+  const owner = await isOwnerSessionAsync(session);
   const stalcraftProfile = session ? await getStalcraftProfile(session.userId).catch(() => null) : null;
 
   return NextResponse.json({

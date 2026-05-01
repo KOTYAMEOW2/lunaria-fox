@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { assertOwnerSession } from "@/lib/auth/owners";
+import { assertOwnerSessionAsync } from "@/lib/auth/owners";
 import { getSession } from "@/lib/auth/session";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { ScAdminGuildControlClient } from "@/components/stalcraft/sc-admin-guild-control-client";
@@ -11,7 +11,7 @@ export default async function AdminPage() {
   const session = await getSession();
   if (!session) redirect("/api/auth/discord/login?next=/admin");
   try {
-    assertOwnerSession(session);
+    await assertOwnerSessionAsync(session);
   } catch {
     redirect("/dashboard");
   }
@@ -58,7 +58,7 @@ export default async function AdminPage() {
         <div className="page-head sc-page-head">
           <span className="eyebrow sc-eyebrow">STALCRAFT Admin</span>
           <h1>Глобальный список SC-серверов</h1>
-          <p>Здесь только STALCRAFT-only индекс серверов. Premium и старые general-модули удалены.</p>
+          <p>Панель владельцев для контроля подключённых серверов, заявок на выход бота и технического состояния индекса.</p>
         </div>
         <ScAdminGuildControlClient guilds={guildPayload} />
       </div>

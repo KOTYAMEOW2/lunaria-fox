@@ -1,5 +1,5 @@
 import { canManageGuild, fetchDiscordGuilds } from "@/lib/auth/discord";
-import { isOwnerSession } from "@/lib/auth/owners";
+import { isOwnerSessionAsync } from "@/lib/auth/owners";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { DiscordSession } from "@/lib/types";
 
@@ -17,7 +17,7 @@ export async function assertGuildAccess(session: DiscordSession | null, guildId:
     throw new Error("Unauthorized");
   }
 
-  if (isOwnerSession(session)) {
+  if (await isOwnerSessionAsync(session)) {
     return;
   }
 

@@ -3,11 +3,11 @@ export default function PricingPage() {
     <section className="page-shell">
       <div className="container">
         <div className="page-head">
-          <span className="eyebrow">STALCRAFT-only</span>
-          <h1>Premium-раздел удалён</h1>
+          <span className="eyebrow">STALCRAFT Access</span>
+          <h1>Доступ к штабу Lunaria Fox</h1>
           <p>
-            В этой версии нет premium-функций, тикетов, VoiceMaster или модерации. Весь проект сфокусирован на
-            STALCRAFT-кланах, КВ и профилях игроков.
+            Основной фокус проекта — инструменты для STALCRAFT-кланов: КВ, посещения, отряды, табы,
+            профили игроков, readiness и Discord-уведомления.
           </p>
         </div>
       </div>
