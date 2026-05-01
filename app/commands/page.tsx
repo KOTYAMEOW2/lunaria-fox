@@ -14,7 +14,7 @@ const commands = [
   ["sc-squad list/create/add/remove/delete/publish", "Создаёт отряды КВ, распределяет игроков и публикует сводку в Discord. Управление доступно офицеру и выше."],
   ["sc-friends", "Показывает зарегистрированных друзей STALCRAFT, которых удалось сопоставить через EXBO/API."],
   ["sc-readiness", "Проверяет, у кого из клана заполнены master-оружие и броня перед КВ."],
-  ["sc-game balance/daily/momentka/coinflip/dice/transfer/top", "Мини-игры: баланс жетонов, ежедневный схрон, моментка Зоны, ставки, кости, передача жетонов и топ сервера."],
+  ["sc-game balance/daily/momentka/artifact/coinflip/dice/transfer/top", "Мини-игры: баланс жетонов, ежедневный схрон, моментка Зоны, поиск артефакта, ставки, кости, передача жетонов и топ сервера."],
   ["sc-emission status/start/end", "Показывает или меняет статус выброса."],
 ];
 

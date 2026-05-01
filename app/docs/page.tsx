@@ -5,7 +5,7 @@ export default function DocsPage() {
     "На сайте открыть Dashboard сервера и выбрать каналы: КВ-пост, отсутствия, итоги, выбросы, логи, sc-команды.",
     "Игрокам привязать EXBO/STALCRAFT профиль на странице STALCRAFT.",
     "На сервере выполнить `/sc-assist setup`, чтобы проверить каналы, роли и клановые настройки.",
-    "Игрокам использовать `/sc-assist overview`, `/sc-profile`, `/sc-sync`, `/sc-friends`, `/sc-game daily`, `/sc-game momentka`, `/sc-game dice` и `/sc-game transfer` как ежедневные команды-помощники.",
+    "Игрокам использовать `/sc-assist overview`, `/sc-profile`, `/sc-sync`, `/sc-friends`, `/sc-game daily`, `/sc-game momentka`, `/sc-game artifact`, `/sc-game dice` и `/sc-game transfer` как ежедневные команды-помощники.",
     "Игрокам на странице STALCRAFT указать master-оружие и броню, если EXBO API не отдаёт инвентарь.",
     "Офицерам перед КВ открыть раздел `Отряды КВ` или использовать `/sc-squad create`, `/sc-squad add`, `/sc-squad publish`.",
     "Офицерам выполнить `/sc-readiness`, чтобы увидеть, кто не заполнил снаряжение перед КВ.",
