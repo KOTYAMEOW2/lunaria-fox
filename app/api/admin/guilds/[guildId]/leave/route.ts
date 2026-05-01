@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { assertOwnerSession } from "@/lib/auth/owners";
+import { assertOwnerSessionAsync } from "@/lib/auth/owners";
 import { getSession } from "@/lib/auth/session";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -12,7 +12,7 @@ const schema = z.object({
 export async function POST(request: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   try {
     const session = await getSession();
-    assertOwnerSession(session);
+    await assertOwnerSessionAsync(session);
 
     const { guildId } = await params;
     const body = schema.parse(await request.json().catch(() => ({})));
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         action: "leave_guild",
         status: "pending",
         reason: body.reason || "Удаление через админ-панель",
-        requested_by: session.userId,
+        requested_by: session!.userId,
         created_at: new Date().toISOString(),
       })
       .select("id, guild_id, action, status, reason, created_at")
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (error) throw error;
 
     await supabase.from("sc_admin_audit_logs").insert({
-      actor_discord_user_id: session.userId,
+      actor_discord_user_id: session!.userId,
       action: "leave_guild_requested",
       target_type: "guild",
       target_id: guildId,
