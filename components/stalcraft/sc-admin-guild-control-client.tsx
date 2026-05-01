@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useState } from "react";
+import { useState, startTransition } from "react";
 
 type AdminGuild = {
   guild_id: string;
@@ -84,9 +84,7 @@ export function ScAdminGuildControlClient({ guilds }: { guilds: AdminGuild[] }) 
               <div className="guild-card-header">
                 <div>
                   <h3>{guild.name || guild.guild_id}</h3>
-                  <p>
-                    {guild.member_count || 0} members · {guild.guild_id}
-                  </p>
+                  <p>{guild.member_count || 0} members · {guild.guild_id}</p>
                 </div>
                 <span className={`badge ${offline ? "warn" : "success"}`}>
                   {offline ? "bot removed/offline" : "bot online"}
