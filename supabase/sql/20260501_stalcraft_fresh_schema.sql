@@ -145,7 +145,6 @@ create table public.sc_guild_settings (
   guild_id text primary key references public.sc_guilds(guild_id) on delete cascade,
   enabled boolean not null default true,
   commands_enabled boolean not null default true,
-  video_enabled boolean not null default false,
   auto_sync_roles boolean not null default true,
   community_name text,
   clan_id text references public.sc_clans(clan_id) on delete set null,
@@ -309,6 +308,7 @@ create table public.sc_cw_result_queue (
   session_id uuid references public.sc_cw_sessions(id) on delete set null,
   discord_user_id text references public.sc_players(discord_user_id) on delete set null,
   character_name text not null,
+  matches_count integer not null default 1,
   kills integer not null default 0,
   deaths integer not null default 0,
   assists integer not null default 0,
@@ -363,27 +363,6 @@ create table public.sc_logs (
   meta jsonb not null default '{}'::jsonb,
   payload jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
-);
-
-create table public.sc_videos (
-  id uuid primary key default gen_random_uuid(),
-  guild_id text references public.sc_guilds(guild_id) on delete set null,
-  clan_id text references public.sc_clans(clan_id) on delete set null,
-  discord_user_id text references public.sc_players(discord_user_id) on delete cascade,
-  author_discord_user_id text,
-  author_name text,
-  character_id text,
-  character_name text,
-  region text check (region is null or region in ('RU', 'EU', 'NA', 'SEA')),
-  title text not null,
-  description text,
-  url text,
-  video_url text,
-  storage_path text,
-  thumbnail_url text,
-  status text not null default 'published' check (status in ('pending', 'published', 'rejected')),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
 );
 
 create table public.sc_admin_audit_logs (
@@ -444,7 +423,6 @@ create index sc_cw_attendance_guild_idx on public.sc_cw_attendance(guild_id, sta
 create index sc_cw_result_queue_guild_idx on public.sc_cw_result_queue(guild_id, created_at desc);
 create index sc_logs_guild_created_idx on public.sc_logs(guild_id, created_at desc);
 create index sc_logs_clan_created_idx on public.sc_logs(clan_id, created_at desc);
-create index sc_videos_status_created_idx on public.sc_videos(status, created_at desc);
 create index sc_admin_bot_actions_pending_idx on public.sc_admin_bot_actions(status, created_at);
 create index sc_admin_bot_actions_guild_idx on public.sc_admin_bot_actions(guild_id, created_at desc);
 
@@ -470,7 +448,6 @@ create trigger sc_profile_showcases_touch before update on public.sc_profile_sho
 create trigger sc_cw_sessions_touch before update on public.sc_cw_sessions for each row execute function public.touch_updated_at();
 create trigger sc_cw_attendance_touch before update on public.sc_cw_attendance for each row execute function public.touch_updated_at();
 create trigger sc_emission_state_touch before update on public.sc_emission_state for each row execute function public.touch_updated_at();
-create trigger sc_videos_touch before update on public.sc_videos for each row execute function public.touch_updated_at();
 create trigger sc_admin_bot_actions_touch before update on public.sc_admin_bot_actions for each row execute function public.touch_updated_at();
 create trigger sc_admin_bot_flags_touch before update on public.sc_admin_bot_flags for each row execute function public.touch_updated_at();
 create trigger sc_admin_guild_notes_touch before update on public.sc_admin_guild_notes for each row execute function public.touch_updated_at();
@@ -632,7 +609,6 @@ begin
     'sc_cw_result_audit',
     'sc_emission_state',
     'sc_logs',
-    'sc_videos',
     'sc_admin_audit_logs',
     'sc_admin_bot_actions',
     'sc_admin_bot_flags',
@@ -883,38 +859,6 @@ with check (
   or public.has_clan_access(clan_id, 'officer')
 );
 
-create policy videos_read on public.sc_videos
-for select to authenticated
-using (
-  (status = 'published' and public.is_stalcraft_linked())
-  or discord_user_id = public.current_discord_id()
-  or author_discord_user_id = public.current_discord_id()
-  or public.has_guild_access(guild_id, 'member')
-  or public.has_clan_access(clan_id, 'member')
-);
-
-create policy videos_insert_linked on public.sc_videos
-for insert to authenticated
-with check (
-  coalesce(discord_user_id, author_discord_user_id) = public.current_discord_id()
-  and public.is_stalcraft_linked()
-);
-
-create policy videos_update_own_or_staff on public.sc_videos
-for update to authenticated
-using (
-  discord_user_id = public.current_discord_id()
-  or author_discord_user_id = public.current_discord_id()
-  or public.has_guild_access(guild_id, 'officer')
-  or public.has_clan_access(clan_id, 'officer')
-)
-with check (
-  discord_user_id = public.current_discord_id()
-  or author_discord_user_id = public.current_discord_id()
-  or public.has_guild_access(guild_id, 'officer')
-  or public.has_clan_access(clan_id, 'officer')
-);
-
 create policy admin_audit_owner_read on public.sc_admin_audit_logs
 for select to authenticated
 using (public.is_sc_owner());
@@ -943,6 +887,33 @@ grant select, insert, update, delete on all tables in schema public to authentic
 grant select on public.sc_clan_attendance_stats to authenticated;
 grant all on all tables in schema public to service_role;
 grant execute on all functions in schema public to authenticated, service_role;
+
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table public.sc_guild_settings;
+  exception when duplicate_object then
+    null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.sc_roles;
+  exception when duplicate_object then
+    null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.sc_admin_bot_actions;
+  exception when duplicate_object then
+    null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.sc_guilds;
+  exception when duplicate_object then
+    null;
+  end;
+end $$;
 
 commit;
 

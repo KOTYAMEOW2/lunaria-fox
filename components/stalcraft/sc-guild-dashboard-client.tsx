@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-export type ScDashboardSection = "settings" | "attendance" | "tabs" | "logs";
+export type ScDashboardSection = "settings" | "attendance" | "tabs";
 
 type Props = {
   guildId: string;
@@ -22,23 +22,38 @@ const navItems: Array<[ScDashboardSection, string, string]> = [
   ["settings", "Настройки", "settings"],
   ["attendance", "Посещения", "attendance"],
   ["tabs", "Табы КВ", "cw-tabs"],
-  ["logs", "SC логи", "logs"],
 ];
 
-function toInt(value: string) {
-  const parsed = Number.parseInt(value.trim(), 10);
+type CwResultRow = {
+  character_name: string;
+  matches_count: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  treasury_spent: number;
+  score: number;
+};
+
+function toInt(value: string | number | null | undefined) {
+  const parsed = Number.parseInt(String(value ?? "0").replace(/[^\d-]/g, ""), 10);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function parseResultRows(value: string) {
+function parseManualResultRows(value: string): CwResultRow[] {
   return value
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [character_name, kills, deaths, assists, treasury_spent, score] = line.split(/[;,]/).map((item) => item.trim());
+      const parts = line.split(/[;,]/).map((item) => item.trim());
+      const [character_name] = parts;
+      const hasMatches = parts.length >= 7;
+      const [matches_count, kills, deaths, assists, treasury_spent, score] = hasMatches
+        ? parts.slice(1)
+        : ["1", ...parts.slice(1)];
       return {
         character_name,
+        matches_count: Math.max(1, toInt(matches_count || "1")),
         kills: toInt(kills || "0"),
         deaths: toInt(deaths || "0"),
         assists: toInt(assists || "0"),
@@ -47,6 +62,162 @@ function parseResultRows(value: string) {
       };
     })
     .filter((row) => row.character_name);
+}
+
+function parseFloatStat(value: string | undefined) {
+  if (!value) return null;
+  const parsed = Number.parseFloat(value.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isGroupedInteger(parts: string[]) {
+  return parts.every((part, index) => /^\d+$/.test(part) && (index === 0 ? part.length <= 3 : part.length === 3));
+}
+
+function groupedInt(parts: string[]) {
+  return toInt(parts.join(""));
+}
+
+function buildPartitions(tokens: string[], groupsLeft: number, maxGroupSize: number): string[][][] {
+  if (groupsLeft === 0) return tokens.length === 0 ? [[]] : [];
+  const minRemaining = groupsLeft - 1;
+  const maxSize = Math.min(maxGroupSize, tokens.length - minRemaining);
+  const result: string[][][] = [];
+
+  for (let size = 1; size <= maxSize; size += 1) {
+    const group = tokens.slice(0, size);
+    if (!isGroupedInteger(group)) continue;
+    for (const tail of buildPartitions(tokens.slice(size), groupsLeft - 1, maxGroupSize)) {
+      result.push([group, ...tail]);
+    }
+  }
+
+  return result;
+}
+
+function scoreOcrCandidate(values: number[], kd: number | null, kda: number | null) {
+  const [matches, kills, deaths, assists, treasury, score] = values;
+  let penalty = 0;
+
+  if (matches < 0 || matches > 10000) penalty += 500;
+  if (kills > 100000 || deaths > 100000 || assists > 100000) penalty += 250;
+  if (treasury > 999999999 || score > 999999999) penalty += 250;
+
+  if (kd !== null) {
+    const current = deaths === 0 ? (kills > 0 ? 99 : 0) : kills / deaths;
+    penalty += Math.abs(Math.min(current, 99) - kd) * 30;
+  }
+
+  if (kda !== null) {
+    const current = deaths === 0 ? (kills + assists > 0 ? 99 : 0) : (kills + assists) / deaths;
+    penalty += Math.abs(Math.min(current, 99) - kda) * 20;
+  }
+
+  return penalty;
+}
+
+function parseOcrNumbers(rawNumbers: string[]) {
+  const decimalTail = rawNumbers.filter((token) => /[,.]/.test(token)).slice(-2);
+  const kd = parseFloatStat(decimalTail[0]);
+  const kda = parseFloatStat(decimalTail[1]);
+  const integerTokens = rawNumbers.filter((token) => !/[,.]/.test(token));
+
+  if (integerTokens.length < 6) return null;
+
+  const partitionCandidates = buildPartitions(integerTokens, 6, 3)
+    .map((partition) => partition.map(groupedInt))
+    .map((values) => ({
+      values,
+      score: scoreOcrCandidate(values, kd, kda),
+    }))
+    .sort((a, b) => a.score - b.score);
+
+  const best = partitionCandidates[0]?.values;
+  if (!best) return null;
+
+  return {
+    matches_count: Math.max(1, best[0] || 1),
+    kills: best[1] || 0,
+    deaths: best[2] || 0,
+    assists: best[3] || 0,
+    treasury_spent: best[4] || 0,
+    score: best[5] || 0,
+  };
+}
+
+function parseOcrResultRows(value: string): CwResultRow[] {
+  const ignored = /^(ник|игрок|player|name|kills?|убийств|смерт|death|assist|казна|score|счет|счёт|k\/d)/i;
+
+  return value
+    .split("\n")
+    .map((line) => line.replace(/[|¦]/g, " ").trim())
+    .filter((line) => line.length > 3 && !ignored.test(line))
+    .map((line) => {
+      const numericMatches = [...line.matchAll(/\d+(?:[,.]\d+)?/g)];
+      if (numericMatches.length < 6) return null;
+
+      const firstNumberIndex = numericMatches[0]?.index ?? line.length;
+      const character_name = line
+        .slice(0, firstNumberIndex)
+        .replace(/[^\p{L}\p{N}\s_[\].#-]/gu, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!character_name || character_name.length < 2) return null;
+
+      const parsed = parseOcrNumbers(numericMatches.map((match) => match[0]));
+      if (!parsed) return null;
+
+      return {
+        character_name,
+        ...parsed,
+      };
+    })
+    .filter(Boolean) as CwResultRow[];
+}
+
+function rowsToText(rows: CwResultRow[]) {
+  return rows
+    .map((row) => `${row.character_name};${row.matches_count};${row.kills};${row.deaths};${row.assists};${row.treasury_spent};${row.score}`)
+    .join("\n");
+}
+
+function aggregateRows(rows: CwResultRow[]) {
+  const byName = new Map<string, CwResultRow & { tabs_count: number }>();
+
+  for (const row of rows) {
+    const name = row.character_name.trim();
+    const key = name.toLocaleLowerCase("ru");
+    const current = byName.get(key);
+    if (!current) {
+      byName.set(key, { ...row, matches_count: Math.max(1, toInt(row.matches_count || 1)), character_name: name, tabs_count: 1 });
+      continue;
+    }
+
+    current.matches_count += Math.max(1, toInt(row.matches_count || 1));
+    current.kills += toInt(row.kills);
+    current.deaths += toInt(row.deaths);
+    current.assists += toInt(row.assists);
+    current.treasury_spent += toInt(row.treasury_spent);
+    current.score += toInt(row.score);
+    current.tabs_count += 1;
+  }
+
+  return [...byName.values()].sort((a, b) => b.score - a.score || b.kills - a.kills);
+}
+
+function formatKd(row: CwResultRow) {
+  if (row.deaths === 0) return row.kills > 0 ? "∞" : "0.00";
+  return (row.kills / row.deaths).toFixed(2);
+}
+
+function formatKda(row: CwResultRow) {
+  if (row.deaths === 0) return row.kills + row.assists > 0 ? "∞" : "0.00";
+  return ((row.kills + row.assists) / row.deaths).toFixed(2);
+}
+
+function formatStat(value: number) {
+  return new Intl.NumberFormat("ru-RU").format(value || 0);
 }
 
 function uniqueClanOptions(characters: any[]) {
@@ -75,6 +246,9 @@ function uniqueClanOptions(characters: any[]) {
 export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) {
   const [status, setStatus] = useState("");
   const [resultText, setResultText] = useState("");
+  const [ocrStatus, setOcrStatus] = useState("Картинка не сохраняется: OCR работает в браузере.");
+  const [ocrPreviewRows, setOcrPreviewRows] = useState<CwResultRow[]>([]);
+  const [resultRows, setResultRows] = useState<CwResultRow[]>(() => data.resultQueue || []);
   const clanOptions = useMemo(() => uniqueClanOptions(data.userCharacters || []), [data.userCharacters]);
   const initialClanKey = clanOptions.find((clan) => clan.clan_id && clan.clan_id === data.settings?.clan_id)?.key || "";
   const [settings, setSettings] = useState({
@@ -112,6 +286,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
       total: rows.length,
     };
   }, [data.attendance]);
+  const totalRows = useMemo(() => aggregateRows(resultRows), [resultRows]);
 
   function selectClan(key: string) {
     const clan = clanOptions.find((item) => item.key === key);
@@ -159,8 +334,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
     setStatus(response.ok ? "Сохранено." : body.error || "Ошибка сохранения.");
   }
 
-  async function uploadResults() {
-    const rows = parseResultRows(resultText);
+  async function uploadRows(rows: CwResultRow[]) {
     if (!rows.length) {
       setStatus("Строки табов не найдены.");
       return;
@@ -173,7 +347,40 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
     });
     const body = await response.json().catch(() => ({}));
     setStatus(response.ok ? `Загружено строк: ${body.count || rows.length}.` : body.error || "Ошибка загрузки.");
-    if (response.ok) setResultText("");
+    if (response.ok) {
+      setResultRows((current) => [...current, ...rows]);
+      setOcrPreviewRows([]);
+      setResultText("");
+    }
+  }
+
+  async function uploadResults() {
+    await uploadRows(parseManualResultRows(resultText));
+  }
+
+  async function readScreenshot(file: File) {
+    setOcrStatus("Распознаю скрин. Файл не отправляется на сервер.");
+    setStatus("OCR...");
+
+    try {
+      const { createWorker } = await import("tesseract.js");
+      const worker = await createWorker("eng+rus");
+      const result = await worker.recognize(file);
+      await worker.terminate();
+
+      const rows = parseOcrResultRows(result.data.text || "");
+      setOcrPreviewRows(rows);
+      setResultText(rowsToText(rows));
+      setOcrStatus(
+        rows.length
+          ? `Распознано строк: ${rows.length}. Проверь строки ниже и нажми “Загрузить табы”.`
+          : "OCR не нашёл строки статистики. Попробуй более чёткий скрин или вставь строки вручную.",
+      );
+      setStatus(rows.length ? "OCR готов." : "OCR без строк.");
+    } catch (error) {
+      setOcrStatus(error instanceof Error ? error.message : "OCR failed.");
+      setStatus("OCR ошибка.");
+    }
   }
 
   return (
@@ -324,56 +531,124 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
             <div className="dashboard-head">
               <div>
                 <span className="eyebrow sc-eyebrow">CW Tabs</span>
-                <h2>Очередь итогов КВ</h2>
+                <h2>Скрины КВ и общая таблица</h2>
               </div>
-              <span className="badge muted">{(data.resultQueue || []).length} row(s)</span>
+              <span className="badge muted">{resultRows.length} row(s)</span>
             </div>
             <div className="panel-note">
-              Формат строки: <code>ник;kills;deaths;assists;казна;счёт</code>. После команды `/sc-cw publish-results`
-              бот отправит итог в Discord и удалит эти строки из Supabase.
+              Загрузи скрин таба КВ. Сайт распознает таблицу в браузере, покажет строки для проверки и сохранит в Supabase
+              только числовую статистику. Сам скрин не сохраняется.
+            </div>
+            <div className="sc-upload-zone">
+              <div>
+                <strong>Загрузить скрин</strong>
+                <span>{ocrStatus}</span>
+              </div>
+              <input
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  if (file) void readScreenshot(file);
+                  event.currentTarget.value = "";
+                }}
+                type="file"
+              />
+            </div>
+            {ocrPreviewRows.length > 0 ? (
+              <div className="sc-table-card">
+                <h3>Предпросмотр OCR</h3>
+                <div className="sc-result-table-wrap">
+                  <table className="sc-result-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Игрок</th>
+                        <th>Матчей</th>
+                        <th>Убийства</th>
+                        <th>Смерти</th>
+                        <th>Помощь</th>
+                        <th>Казна</th>
+                        <th>Счёт</th>
+                        <th>K/D</th>
+                        <th>KDA</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ocrPreviewRows.map((row, index) => (
+                        <tr key={`${row.character_name}-${index}`}>
+                          <td>{index + 1}</td>
+                          <td>{row.character_name}</td>
+                          <td>{formatStat(row.matches_count || 1)}</td>
+                          <td>{formatStat(row.kills)}</td>
+                          <td>{formatStat(row.deaths)}</td>
+                          <td>{formatStat(row.assists)}</td>
+                          <td>{formatStat(row.treasury_spent)}</td>
+                          <td>{formatStat(row.score)}</td>
+                          <td>{formatKd(row)}</td>
+                          <td>{formatKda(row)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+            <div className="panel-note">
+              Если OCR ошибся, поправь строки вручную. Формат строки: <code>ник;матчей;kills;deaths;assists;казна;счёт</code>.
             </div>
             <div className="field">
-              <label>Добавить табы</label>
+              <label>Распознанные или ручные строки</label>
               <textarea value={resultText} onChange={(event) => setResultText(event.target.value)} placeholder="PlayerOne;12;3;5;1000;320" />
             </div>
             <button className="primary-button sc-primary" onClick={uploadResults} type="button">Загрузить табы</button>
 
-            <div className="activity-feed-grid" style={{ marginTop: 18 }}>
-              {(data.resultQueue || []).map((row: any) => (
-                <article className="activity-card" key={row.id}>
-                  <strong>{row.character_name}</strong>
-                  <p>K/D/A {row.kills}/{row.deaths}/{row.assists} · Казна {row.treasury_spent} · Счёт {row.score}</p>
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        {activeSection === "logs" ? (
-          <section className="dashboard-section panel sc-dashboard-section">
-            <div className="dashboard-head">
-              <div>
-                <span className="eyebrow sc-eyebrow">Discord logs</span>
-                <h2>SC логи публикуются только в Discord</h2>
+            <div className="sc-table-card">
+              <div className="dashboard-head">
+                <div>
+                  <span className="eyebrow sc-eyebrow">Total table</span>
+                  <h3>Общая таблица КВ</h3>
+                </div>
+                <span className="badge muted">{totalRows.length} player(s)</span>
               </div>
-              <span className="badge muted">{status || "канал логов"}</span>
+              <div className="sc-result-table-wrap">
+                <table className="sc-result-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Игрок</th>
+                      <th>Матчей</th>
+                      <th>Убийства</th>
+                      <th>Смерти</th>
+                      <th>Помощь</th>
+                      <th>Казна</th>
+                      <th>Счёт</th>
+                      <th>K/D</th>
+                      <th>KDA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {totalRows.length > 0 ? totalRows.map((row, index) => (
+                      <tr key={row.character_name}>
+                        <td>{index + 1}</td>
+                        <td>{row.character_name}</td>
+                        <td>{formatStat(row.matches_count || row.tabs_count)}</td>
+                        <td>{formatStat(row.kills)}</td>
+                        <td>{formatStat(row.deaths)}</td>
+                        <td>{formatStat(row.assists)}</td>
+                        <td>{formatStat(row.treasury_spent)}</td>
+                        <td>{formatStat(row.score)}</td>
+                        <td>{formatKd(row)}</td>
+                        <td>{formatKda(row)}</td>
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan={10}>Табы пока не загружены.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <p className="muted">
-              Сайт не показывает журнал логов отдельной лентой. Выбери Discord-канал, и бот будет отправлять туда события:
-              привязки игроков, изменения настроек, КВ, табы, выбросы и системные действия.
-            </p>
-            <div className="field">
-              <label>Канал логов Discord</label>
-              <select value={settings.logs_channel_id} onChange={(event) => setSettings({ ...settings, logs_channel_id: event.target.value })}>
-                <option value="">Не выбран</option>
-                {channelOptions.map((channel: any) => (
-                  <option key={`logs-${channel.channel_id}`} value={channel.channel_id}>
-                    # {channel.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button className="primary-button sc-primary" onClick={saveSettings} type="button">Сохранить канал логов</button>
           </section>
         ) : null}
       </div>

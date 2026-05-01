@@ -20,12 +20,7 @@ const sectionCopy: Record<ScDashboardSection, { eyebrow: string; title: string; 
   tabs: {
     eyebrow: "CW Tabs",
     title: "Табы и итоги КВ",
-    description: "Очередь результатов для публикации в Discord и последующего удаления из Supabase.",
-  },
-  logs: {
-    eyebrow: "Discord Logs",
-    title: "SC логи",
-    description: "Логи не выводятся как сайт-журнал: бот публикует события в выбранный Discord-канал.",
+    description: "Загрузка скринов КВ, проверка OCR и общая таблица K/D по всем загруженным табам.",
   },
 };
 

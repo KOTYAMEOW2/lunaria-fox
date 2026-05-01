@@ -191,6 +191,7 @@ export async function addCwResultRows(
   userId: string,
   rows: Array<{
     character_name: string;
+    matches_count?: number;
     kills: number;
     deaths: number;
     assists: number;
@@ -208,6 +209,7 @@ export async function addCwResultRows(
     guild_id: guildId,
     clan_id: settings?.clan_id || null,
     character_name: row.character_name,
+    matches_count: row.matches_count || 1,
     kills: row.kills,
     deaths: row.deaths,
     assists: row.assists,

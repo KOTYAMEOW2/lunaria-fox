@@ -17,6 +17,7 @@
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "tesseract.js": "^7.0.0",
     "zod": "latest"
   },
   "devDependencies": {

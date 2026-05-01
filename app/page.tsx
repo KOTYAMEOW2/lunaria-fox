@@ -83,28 +83,22 @@ export default async function HomePage() {
           <aside className="sc-command-console">
             <div className="sc-console-top">
               <span>ZONE SIGNALS</span>
-              <strong>Журнал выбросов</strong>
+              <strong>Последний выброс</strong>
             </div>
             <div className="sc-emission-card">
-              <p>
-                В лоре STALCRAFT/X и S.T.A.L.K.E.R. выброс — опасная волна аномальной энергии Зоны.
-                Во время выброса игрокам нужно укрытие, поэтому бот сообщает о начале и завершении события
-                в выбранный Discord-канал.
-              </p>
-              <div className="sc-emission-list">
-                {emissions.length > 0 ? emissions.map((event) => (
-                  <div className="sc-emission-row" key={event.id}>
-                    <span>{emissionLabel(event.event_type)}</span>
-                    <strong>{event.title || "Выброс"}</strong>
-                    <time>{formatEmissionTime(event.created_at)} МСК</time>
-                  </div>
-                )) : (
-                  <div className="sc-emission-empty">
-                    <strong>Истории выбросов пока нет</strong>
-                    <span>После первых сообщений бота здесь появятся последние начала и завершения выбросов.</span>
-                  </div>
-                )}
-              </div>
+              {emissions[0] ? (
+                <div className="sc-emission-latest">
+                  <span>{emissionLabel(emissions[0].event_type)}</span>
+                  <strong>{formatEmissionTime(emissions[0].created_at)} МСК</strong>
+                  <small>{emissions[0].title || "данные получены от бота"}</small>
+                </div>
+              ) : (
+                <div className="sc-emission-latest sc-emission-empty">
+                  <span>Нет данных</span>
+                  <strong>--:-- МСК</strong>
+                  <small>после первого сообщения бота здесь появится время выброса</small>
+                </div>
+              )}
             </div>
             <div className="sc-terminal">
               <div><span>01</span> Игрок нажимает “Участвую” или “Отсутствую” перед КВ</div>
@@ -168,8 +162,6 @@ export default async function HomePage() {
               {[
                 ["Каналы", "КВ-пост, отсутствия, итоги, выбросы, логи и SC-команды."],
                 ["Роли", "Verified, участник КВ, лидер, полковник и офицер выбираются из ролей сервера."],
-                ["Клан", "Клан выбирается из доступных персонажей, без ручного поиска Clan ID."],
-                ["Discord", "Бот читает Supabase и публикует сообщения только в выбранные каналы."],
               ].map(([title, body]) => (
                 <div className="sc-route-step" key={title}>
                   <strong>{title}</strong>

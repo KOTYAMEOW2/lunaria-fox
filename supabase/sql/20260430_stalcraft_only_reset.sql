@@ -242,6 +242,7 @@ create table if not exists sc_cw_result_queue (
   session_id uuid references sc_cw_sessions(id) on delete set null,
   discord_user_id text references sc_players(discord_user_id) on delete set null,
   character_name text not null,
+  matches_count integer default 1,
   kills integer default 0,
   deaths integer default 0,
   assists integer default 0,

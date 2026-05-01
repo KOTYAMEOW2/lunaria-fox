@@ -2401,10 +2401,10 @@ body {
 }
 
 .sc-emission-card {
-  min-height: 270px;
+  min-height: 150px;
   display: grid;
   gap: 16px;
-  align-content: start;
+  align-content: center;
   padding: 22px;
   border-radius: 24px;
   border: 1px solid rgba(155, 124, 255, 0.22);
@@ -2417,6 +2417,36 @@ body {
   margin: 0;
   color: #d7cee8;
   line-height: 1.65;
+}
+
+.sc-emission-latest {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(229, 221, 255, 0.14);
+  background:
+    radial-gradient(circle at 92% 18%, rgba(255, 199, 92, 0.16), transparent 28%),
+    linear-gradient(135deg, rgba(155, 124, 255, 0.15), rgba(0, 0, 0, 0.26)),
+    rgba(255, 255, 255, 0.03);
+}
+
+.sc-emission-latest span {
+  color: var(--sc-amber);
+  font-size: 0.76rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.sc-emission-latest strong {
+  color: #fff8e6;
+  font-size: clamp(1.9rem, 4vw, 3rem);
+  line-height: 1;
+}
+
+.sc-emission-latest small {
+  color: var(--text-muted);
+  font-size: 0.88rem;
 }
 
 .sc-emission-list {
@@ -2447,6 +2477,151 @@ body {
 .sc-emission-empty span {
   color: var(--text-muted);
   font-size: 0.9rem;
+}
+
+.sc-upload-zone {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+  margin: 18px 0;
+  border-radius: 22px;
+  border: 1px dashed rgba(155, 124, 255, 0.34);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(229, 221, 255, 0.11), transparent 26%),
+    linear-gradient(135deg, rgba(155, 124, 255, 0.13), rgba(0, 0, 0, 0.18)),
+    rgba(255, 255, 255, 0.03);
+}
+
+.sc-upload-zone div {
+  display: grid;
+  gap: 6px;
+}
+
+.sc-upload-zone strong {
+  color: #fff8e6;
+  font-size: 1.04rem;
+}
+
+.sc-upload-zone span {
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.sc-upload-zone input[type="file"] {
+  max-width: 280px;
+  color: var(--text-muted);
+}
+
+.sc-upload-zone input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  border: 1px solid rgba(229, 221, 255, 0.18);
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #9b7cff, #ffd071);
+  color: #090711;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.sc-table-card {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(184, 146, 255, 0.28);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(184, 146, 255, 0.16), transparent 32%),
+    linear-gradient(180deg, rgba(9, 8, 18, 0.96), rgba(2, 7, 6, 0.93)),
+    rgba(255, 255, 255, 0.02);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.34);
+}
+
+.sc-table-card h3 {
+  margin: 0 0 12px;
+}
+
+.sc-result-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 18px;
+  border: 1px solid rgba(229, 221, 255, 0.12);
+  background:
+    linear-gradient(180deg, rgba(11, 7, 22, 0.92), rgba(0, 6, 5, 0.92)),
+    rgba(255, 255, 255, 0.02);
+}
+
+.sc-result-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.sc-result-table th,
+.sc-result-table td {
+  padding: 13px 14px;
+  border-bottom: 1px solid rgba(229, 221, 255, 0.09);
+  border-right: 1px solid rgba(229, 221, 255, 0.07);
+  white-space: nowrap;
+}
+
+.sc-result-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background:
+    linear-gradient(135deg, rgba(145, 91, 212, 0.98), rgba(103, 78, 158, 0.96)),
+    rgba(13, 9, 26, 0.98);
+  color: #fff7e8;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: right;
+  box-shadow: inset 0 -1px 0 rgba(255, 208, 113, 0.2);
+}
+
+.sc-result-table td {
+  color: #f7f1ff;
+  text-align: right;
+  background: rgba(4, 8, 7, 0.58);
+  font-weight: 700;
+}
+
+.sc-result-table th:first-child,
+.sc-result-table td:first-child {
+  width: 58px;
+  text-align: center;
+  color: #ffd071;
+}
+
+.sc-result-table th:nth-child(2),
+.sc-result-table td:nth-child(2) {
+  min-width: 190px;
+  text-align: left;
+  color: #fffaf0;
+}
+
+.sc-result-table tbody tr:nth-child(even) td {
+  background: rgba(13, 10, 25, 0.66);
+}
+
+.sc-result-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.sc-result-table th:last-child,
+.sc-result-table td:last-child {
+  border-right: 0;
+}
+
+.sc-result-table tbody tr:hover {
+  background: transparent;
+}
+
+.sc-result-table tbody tr:hover td {
+  background: rgba(155, 124, 255, 0.14);
 }
 
 .sc-panel-warning {

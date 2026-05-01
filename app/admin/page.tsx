@@ -24,6 +24,7 @@ export default async function AdminPage() {
     const guildResult = await supabase
       .from("sc_guilds")
       .select("guild_id, name, member_count, is_available, updated_at")
+      .eq("is_available", true)
       .order("name");
     guilds = guildResult.data || [];
 

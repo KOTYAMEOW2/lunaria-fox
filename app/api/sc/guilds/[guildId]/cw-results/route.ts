@@ -7,6 +7,7 @@ import { addCwResultRows } from "@/lib/stalcraft/sc-dashboard";
 
 const rowSchema = z.object({
   character_name: z.string().min(1).max(120),
+  matches_count: z.number().int().min(1).default(1),
   kills: z.number().int().min(0),
   deaths: z.number().int().min(0),
   assists: z.number().int().min(0),
