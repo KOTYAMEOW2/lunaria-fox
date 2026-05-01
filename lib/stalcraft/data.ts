@@ -468,6 +468,59 @@ export async function listRegisteredStalcraftFriends(discordUserId: string) {
   }));
 }
 
+export async function listStalcraftEquipment(discordUserId: string, characterId?: string | null) {
+  const supabase = requireSupabase();
+  let query = supabase
+    .from("sc_equipment")
+    .select("*")
+    .eq("discord_user_id", discordUserId)
+    .order("slot")
+    .order("updated_at", { ascending: false });
+
+  if (characterId) query = query.eq("character_id", characterId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+export async function saveManualStalcraftEquipment(
+  discordUserId: string,
+  payload: { slot: "weapon" | "armor"; itemName: string; itemRank?: string | null; itemCategory?: string | null },
+) {
+  const profile = await getStalcraftProfile(discordUserId);
+  if (!profile?.selected_character_id) throw new Error("Сначала выбери STALCRAFT-персонажа.");
+
+  const now = new Date().toISOString();
+  const slot = payload.slot;
+  const itemName = payload.itemName.trim();
+  if (!itemName) throw new Error("Название предмета обязательно.");
+
+  const { data, error } = await requireSupabase()
+    .from("sc_equipment")
+    .upsert(
+      {
+        discord_user_id: discordUserId,
+        character_id: profile.selected_character_id,
+        slot,
+        item_id: `manual-${slot}`,
+        item_name: itemName,
+        item_rank: payload.itemRank?.trim() || "master",
+        item_level: "master",
+        item_category: payload.itemCategory?.trim() || slot,
+        source: "manual",
+        raw: { source: "site", saved_at: now },
+        updated_at: now,
+      },
+      { onConflict: "discord_user_id,character_id,slot,item_id" },
+    )
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
 export async function listEnabledStalcraftCommunities() {
   const supabase = requireSupabase();
   const { data: settings, error } = await supabase

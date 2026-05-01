@@ -6,6 +6,15 @@ import type { StalcraftCharacterCacheRow, StalcraftProfileRow } from "@/lib/stal
 type Props = {
   profile: StalcraftProfileRow | null;
   characters: StalcraftCharacterCacheRow[];
+  equipment: Array<{
+    id: string;
+    slot: string;
+    item_name: string;
+    item_rank: string | null;
+    item_category: string | null;
+    source: string | null;
+    updated_at: string | null;
+  }>;
   friends: Array<{
     friend_discord_user_id: string;
     game_friend_name: string | null;
@@ -21,9 +30,14 @@ type Props = {
   }>;
 };
 
-export function StalcraftProfileClient({ profile, characters, friends }: Props) {
+export function StalcraftProfileClient({ profile, characters, equipment, friends }: Props) {
   const [status, setStatus] = useState("");
   const [selected, setSelected] = useState(profile?.selected_character_id || "");
+  const [equipmentRows, setEquipmentRows] = useState(equipment || []);
+  const [gearForm, setGearForm] = useState({
+    weapon: equipment.find((item) => item.slot === "weapon")?.item_name || "",
+    armor: equipment.find((item) => item.slot === "armor")?.item_name || "",
+  });
 
   async function selectCharacter(value: string) {
     const [region, characterId] = value.split(":");
@@ -53,6 +67,33 @@ export function StalcraftProfileClient({ profile, characters, friends }: Props) 
     const payload = await response.json().catch(() => ({}));
     setStatus(response.ok ? "Профиль отвязан." : payload.error || "Ошибка отвязки.");
     if (response.ok) startTransition(() => window.location.reload());
+  }
+
+  async function saveGear(slot: "weapon" | "armor") {
+    const itemName = gearForm[slot].trim();
+    if (!itemName) {
+      setStatus("Название предмета обязательно.");
+      return;
+    }
+
+    setStatus("Сохраняю снаряжение...");
+    const response = await fetch("/api/stalcraft/equipment", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        slot,
+        itemName,
+        itemRank: "master",
+        itemCategory: slot,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus(payload.error || "Ошибка сохранения снаряжения.");
+      return;
+    }
+    setEquipmentRows((current) => [payload.equipment, ...current.filter((item) => item.slot !== slot)]);
+    setStatus("Снаряжение сохранено.");
   }
 
   return (
@@ -93,6 +134,43 @@ export function StalcraftProfileClient({ profile, characters, friends }: Props) 
       ) : null}
 
       {status ? <p className="page-alert">{status}</p> : null}
+
+      {profile?.selected_character_id ? (
+        <div className="section">
+          <div className="dashboard-head">
+            <div>
+              <span className="eyebrow sc-eyebrow">Readiness gear</span>
+              <h3>Master-снаряжение для КВ</h3>
+              <p className="muted">Если EXBO API не отдаёт инвентарь, укажи оружие и броню вручную. Бот покажет это в `/sc-profile`.</p>
+            </div>
+            <span className="badge muted">{equipmentRows.length} item(s)</span>
+          </div>
+          <div className="form-grid">
+            <div className="field">
+              <label>Master-оружие</label>
+              <input value={gearForm.weapon} onChange={(event) => setGearForm({ ...gearForm, weapon: event.target.value })} placeholder="Например: FN F2000 Tactical" />
+              <button className="secondary-button sc-secondary" onClick={() => saveGear("weapon")} type="button">Сохранить оружие</button>
+            </div>
+            <div className="field">
+              <label>Master-броня</label>
+              <input value={gearForm.armor} onChange={(event) => setGearForm({ ...gearForm, armor: event.target.value })} placeholder="Например: Сатурн / Танк / Центурион" />
+              <button className="secondary-button sc-secondary" onClick={() => saveGear("armor")} type="button">Сохранить броню</button>
+            </div>
+          </div>
+          <div className="sc-gear-grid">
+            {equipmentRows.length > 0 ? equipmentRows.map((item) => (
+              <article className="activity-card" key={item.id || `${item.slot}-${item.item_name}`}>
+                <div className="activity-card-head">
+                  <span className="badge success">{item.slot}</span>
+                  <span className="activity-time">{item.source || "manual"}</span>
+                </div>
+                <strong>{item.item_name}</strong>
+                <p>{item.item_rank || "master"} · {item.item_category || item.slot}</p>
+              </article>
+            )) : <p className="panel-note">Снаряжение пока не указано.</p>}
+          </div>
+        </div>
+      ) : null}
 
       {profile ? (
         <div className="section">

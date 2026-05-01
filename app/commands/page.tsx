@@ -13,6 +13,7 @@ const commands = [
   ["sc-cw publish-results", "Отправляет итоги КВ и очищает очередь Supabase."],
   ["sc-squad list/create/add/remove/delete/publish", "Создаёт отряды КВ, распределяет игроков и публикует сводку в Discord. Управление доступно офицеру и выше."],
   ["sc-friends", "Показывает зарегистрированных друзей STALCRAFT, которых удалось сопоставить через EXBO/API."],
+  ["sc-readiness", "Проверяет, у кого из клана заполнены master-оружие и броня перед КВ."],
   ["sc-game balance/daily/momentka/coinflip/top", "Мини-игры: баланс жетонов, ежедневный схрон, моментка Зоны, ставка на монету и топ сервера."],
   ["sc-emission status/start/end", "Показывает или меняет статус выброса."],
 ];
