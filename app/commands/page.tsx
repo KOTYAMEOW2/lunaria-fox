@@ -1,5 +1,9 @@
 const commands = [
   ["sc-help", "Объясняет подключение STALCRAFT-only режима."],
+  ["sc-assist overview", "Живой обзор сервера: клан, КВ, табы, выброс и следующие действия."],
+  ["sc-assist setup", "Проверяет каналы, роли, клан и готовность Dashboard-настроек."],
+  ["sc-assist roster", "Показывает привязанный состав STALCRAFT-клана."],
+  ["sc-assist links", "Даёт быстрые ссылки на Dashboard, табы КВ и профиль игрока."],
   ["sc-profile", "Показывает профиль игрока, клан, ранг и master-снаряжение."],
   ["sc-sync", "Обновляет привязанный профиль и выдаёт SC Verified роль."],
   ["sc-player", "Ищет игрока STALCRAFT по нику."],
@@ -16,8 +20,11 @@ export default function CommandsPage() {
       <div className="container">
         <div className="page-head">
           <span className="eyebrow">SC Commands</span>
-          <h1>Команды Lunaria Fox STALCRAFT</h1>
-          <p>Старые moderation/tickets/voice/fun команды удалены. Остались только STALCRAFT-команды.</p>
+          <h1>Команды STALCRAFT-помощника</h1>
+          <p>
+            Команды сфокусированы на задачах игрока и штаба: профиль, состав клана, КВ, табы, выбросы,
+            проверка настроек и быстрый переход в нужный раздел сайта.
+          </p>
         </div>
         <article className="panel">
           <table className="data-table">

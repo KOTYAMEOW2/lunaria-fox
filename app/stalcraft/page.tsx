@@ -31,6 +31,29 @@ export default async function StalcraftPage({ searchParams }: { searchParams?: P
         <div className="section">
           <div className="dashboard-head">
             <div>
+              <span className="eyebrow">SC Assistant</span>
+              <h2>Что делать после привязки</h2>
+              <p className="muted">Эти команды используют твой выбранный STALCRAFT-персонаж и настройки клана.</p>
+            </div>
+          </div>
+          <div className="grid-3">
+            {[
+              ["`/sc-sync`", "Обновляет персонажа, клан, ранг, master-снаряжение и выдаёт SC Verified роль, если клан подходит."],
+              ["`/sc-profile`", "Показывает твой профиль внутри Discord: персонаж, регион, клан, ранг и найденное снаряжение."],
+              ["`/sc-assist overview`", "Показывает состояние сервера: КВ сегодня, очередь табов, выбросы и быстрые ссылки на сайт."],
+            ].map(([title, body]) => (
+              <article className="feature-card" key={title}>
+                <span className="eyebrow">PLAYER FLOW</span>
+                <h3>{title}</h3>
+                <p>{body}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="section">
+          <div className="dashboard-head">
+            <div>
               <span className="eyebrow">STALCRAFT Servers</span>
               <h2>Серверы, где включён STALCRAFT-модуль</h2>
               <p className="muted">После включения через Dashboard бот открывает на сервере `/sc-profile`, `/sc-sync` и `/sc-player`.</p>
