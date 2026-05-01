@@ -1,6 +1,6 @@
-import { redirect } from "next/navigation";
+import { GuildDashboardView } from "./_view";
 
 export default async function GuildDashboardPage({ params }: { params: Promise<{ guildId: string }> }) {
   const { guildId } = await params;
-  redirect(`/dashboard/${guildId}/settings`);
+  return <GuildDashboardView guildId={guildId} section="overview" />;
 }

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-export type ScDashboardSection = "settings" | "attendance" | "squads" | "tabs";
+export type ScDashboardSection = "overview" | "settings" | "attendance" | "squads" | "tabs";
 
 type Props = {
   guildId: string;
@@ -19,6 +19,7 @@ const roleKeys = [
 ] as const;
 
 const navItems: Array<[ScDashboardSection, string, string]> = [
+  ["overview", "Обзор штаба", ""],
   ["settings", "Настройки", "settings"],
   ["attendance", "Посещения", "attendance"],
   ["squads", "Отряды КВ", "squads"],
@@ -291,6 +292,24 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
     };
   }, [data.attendance]);
   const totalRows = useMemo(() => aggregateRows(resultRows), [resultRows]);
+  const readinessSummary = useMemo(() => {
+    const equipmentByUser = new Map<string, Set<string>>();
+    for (const item of data.equipment || []) {
+      const userId = String(item.discord_user_id || "");
+      if (!userId) continue;
+      const slots = equipmentByUser.get(userId) || new Set<string>();
+      slots.add(String(item.slot || ""));
+      equipmentByUser.set(userId, slots);
+    }
+
+    const members = data.clanMembers || [];
+    const ready = members.filter((member: any) => {
+      const slots = equipmentByUser.get(String(member.discord_user_id));
+      return slots?.has("weapon") && slots?.has("armor");
+    }).length;
+
+    return { ready, total: members.length };
+  }, [data.clanMembers, data.equipment]);
   const membersBySquad = useMemo(() => {
     const grouped = new Map<string, any[]>();
     for (const member of squadMembers) {
@@ -478,7 +497,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
         <span className="eyebrow sc-eyebrow">STALCRAFT</span>
         <div className="sidebar-links">
           {navItems.map(([key, label, slug]) => (
-            <a className={activeSection === key ? "sidebar-link-active" : ""} href={`/dashboard/${guildId}/${slug}`} key={key}>
+            <a className={activeSection === key ? "sidebar-link-active" : ""} href={slug ? `/dashboard/${guildId}/${slug}` : `/dashboard/${guildId}`} key={key}>
               {label}
             </a>
           ))}
@@ -489,6 +508,57 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
       </aside>
 
       <div className="dashboard-sections">
+        {activeSection === "overview" ? (
+          <section className="dashboard-section panel sc-dashboard-section">
+            <div className="dashboard-head">
+              <div>
+                <span className="eyebrow sc-eyebrow">Operations Overview</span>
+                <h2>Штабной обзор</h2>
+                <p className="muted">Короткая сводка по текущему состоянию STALCRAFT-сервера.</p>
+              </div>
+              <span className={`badge ${data.guild?.is_available === false ? "warn" : "success"}`}>{data.guild?.is_available === false ? "bot offline" : "bot online"}</span>
+            </div>
+            <div className="sc-overview-grid">
+              <article className="sc-overview-card">
+                <span>КВ сегодня</span>
+                <strong>{attendanceSummary.attending}/{attendanceSummary.total || 0}</strong>
+                <p>участвуют · отсутствуют {attendanceSummary.absent}</p>
+              </article>
+              <article className="sc-overview-card">
+                <span>Отряды</span>
+                <strong>{squads.length}</strong>
+                <p>создано для текущего штаба</p>
+              </article>
+              <article className="sc-overview-card">
+                <span>Табы</span>
+                <strong>{totalRows.length}</strong>
+                <p>игроков в общей таблице</p>
+              </article>
+              <article className="sc-overview-card">
+                <span>Снаряжение</span>
+                <strong>{readinessSummary.ready}/{readinessSummary.total}</strong>
+                <p>игроков с оружием и бронёй</p>
+              </article>
+              <article className="sc-overview-card">
+                <span>Выброс</span>
+                <strong>{data.emission?.state || "idle"}</strong>
+                <p>{data.emission?.updated_at || "нет истории"}</p>
+              </article>
+              <article className="sc-overview-card">
+                <span>Клан</span>
+                <strong>{settings.clan_name || data.settings?.clan_name || "не выбран"}</strong>
+                <p>{settings.region || "регион не задан"}</p>
+              </article>
+            </div>
+            <div className="sc-overview-actions">
+              <a className="primary-button sc-primary" href={`/dashboard/${guildId}/attendance`}>Посещения</a>
+              <a className="secondary-button sc-secondary" href={`/dashboard/${guildId}/squads`}>Отряды КВ</a>
+              <a className="ghost-button sc-ghost" href={`/dashboard/${guildId}/cw-tabs`}>Табы</a>
+              <a className="ghost-button sc-ghost" href={`/dashboard/${guildId}/settings`}>Настройки</a>
+            </div>
+          </section>
+        ) : null}
+
         {activeSection === "settings" ? (
           <section className="dashboard-section panel sc-dashboard-section">
             <div className="dashboard-head">

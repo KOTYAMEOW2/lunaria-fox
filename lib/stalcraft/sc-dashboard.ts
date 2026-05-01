@@ -24,6 +24,7 @@ export type ScGuildDashboardData = {
   resultQueue: any[];
   clanMembers: any[];
   clanStats: any[];
+  equipment: any[];
   squads: any[];
   squadMembers: any[];
   logs: any[];
@@ -137,6 +138,10 @@ export async function getScGuildDashboardData(guildId: string): Promise<ScGuildD
       ? supabase().from("sc_clan_attendance_stats").select("*").eq("clan_id", clanId).order("character_name")
       : Promise.resolve({ data: [] }),
   ]);
+  const memberIds = (clanMembers.data || []).map((member: any) => member.discord_user_id).filter(Boolean);
+  const { data: equipment } = memberIds.length
+    ? await supabase().from("sc_equipment").select("*").in("discord_user_id", memberIds)
+    : { data: [] as any[] };
   const squadIds = [] as string[];
   const { data: squads } = await supabase()
     .from("sc_cw_squads")
@@ -159,6 +164,7 @@ export async function getScGuildDashboardData(guildId: string): Promise<ScGuildD
     resultQueue: resultQueue.data || [],
     clanMembers: clanMembers.data || [],
     clanStats: clanStats.data || [],
+    equipment: equipment || [],
     squads: squads || [],
     squadMembers: squadMembers || [],
     logs: logs.data || [],

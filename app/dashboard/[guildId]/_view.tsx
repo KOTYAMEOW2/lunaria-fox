@@ -7,6 +7,11 @@ import { getScGuildDashboardData } from "@/lib/stalcraft/sc-dashboard";
 import { ScGuildDashboardClient, type ScDashboardSection } from "@/components/stalcraft/sc-guild-dashboard-client";
 
 const sectionCopy: Record<ScDashboardSection, { eyebrow: string; title: string; description: string }> = {
+  overview: {
+    eyebrow: "STALCRAFT HQ",
+    title: "Штаб сервера",
+    description: "Один экран для проверки КВ, отрядов, табов, выбросов и готовности игроков.",
+  },
   settings: {
     eyebrow: "STALCRAFT Settings",
     title: "Настройки сервера",
