@@ -554,6 +554,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
               <a className="primary-button sc-primary" href={`/dashboard/${guildId}/attendance`}>Посещения</a>
               <a className="secondary-button sc-secondary" href={`/dashboard/${guildId}/squads`}>Отряды КВ</a>
               <a className="ghost-button sc-ghost" href={`/dashboard/${guildId}/cw-tabs`}>Табы</a>
+              {settings.clan_id ? <a className="ghost-button sc-ghost" href={`/clans/${settings.clan_id}`}>Клановая таблица</a> : null}
               <a className="ghost-button sc-ghost" href={`/dashboard/${guildId}/settings`}>Настройки</a>
             </div>
           </section>
