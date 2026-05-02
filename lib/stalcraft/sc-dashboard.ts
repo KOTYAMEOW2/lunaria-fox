@@ -309,6 +309,27 @@ export async function clearCwResultRows(guildId: string) {
 }
 
 export async function requestCwPostNow(guildId: string, userId: string) {
+  const [{ data: guild }, { data: settings }] = await Promise.all([
+    supabase()
+      .from("sc_guilds")
+      .select("guild_id, is_available, updated_at")
+      .eq("guild_id", guildId)
+      .maybeSingle(),
+    supabase()
+      .from("sc_guild_settings")
+      .select("cw_post_channel_id")
+      .eq("guild_id", guildId)
+      .maybeSingle(),
+  ]);
+
+  if (!isFreshBotGuild(guild)) {
+    throw new Error("Бот сейчас не подтверждает подключение к серверу. Перезапусти бота и дождись синхронизации sc_guilds.");
+  }
+
+  if (!settings?.cw_post_channel_id) {
+    throw new Error("Канал КВ-поста не выбран. Открой Настройки и укажи канал “КВ-пост”.");
+  }
+
   const { data, error } = await supabase()
     .from("sc_admin_bot_actions")
     .insert({
@@ -322,7 +343,26 @@ export async function requestCwPostNow(guildId: string, userId: string) {
     .select("*")
     .single();
 
+  if (error) {
+    const text = `${error.message || ""} ${error.details || ""} ${error.hint || ""}`;
+    if (/sc_admin_bot_actions_action_check|check constraint|violates/i.test(text)) {
+      throw new Error("Supabase ещё не разрешает действие send_cw_post. Выполни SQL-миграцию 20260502_admin_action_send_cw_post.sql.");
+    }
+    throw error;
+  }
+  return data;
+}
+
+export async function getAdminBotActionStatus(guildId: string, actionId: string) {
+  const { data, error } = await supabase()
+    .from("sc_admin_bot_actions")
+    .select("id, guild_id, action, status, error_message, result, created_at, started_at, processed_at, updated_at")
+    .eq("guild_id", guildId)
+    .eq("id", actionId)
+    .maybeSingle();
+
   if (error) throw error;
+  if (!data) throw new Error("Действие бота не найдено.");
   return data;
 }
 

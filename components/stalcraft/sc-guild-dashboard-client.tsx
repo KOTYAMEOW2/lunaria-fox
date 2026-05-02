@@ -80,6 +80,20 @@ function groupedInt(parts: string[]) {
   return toInt(parts.join(""));
 }
 
+function normalizeOcrNumberToken(value: string) {
+  return String(value || "")
+    .replace(/[OoОо]/g, "0")
+    .replace(/[IlІ|]/g, "1")
+    .replace(/[Зз]/g, "3")
+    .replace(/[Бб]/g, "6")
+    .replace(/[^\d]/g, "");
+}
+
+function isOcrIntegerToken(value: string | undefined) {
+  const normalized = normalizeOcrNumberToken(value || "");
+  return normalized.length > 0 && normalized.length === String(value || "").replace(/[^\dOoОоIlІ|ЗзБб]/g, "").length;
+}
+
 function buildPartitions(tokens: string[], groupsLeft: number, maxGroupSize: number): string[][][] {
   if (groupsLeft === 0) return tokens.length === 0 ? [[]] : [];
   const minRemaining = groupsLeft - 1;
@@ -171,23 +185,23 @@ function parseStalcraftScoreboardLine(line: string): CwResultRow | null {
   if (!normalized) return null;
 
   const tokens = normalized.split(/\s+/);
-  if (/^(?:#|№)?\d{1,3}$/.test(tokens[0] || "")) {
+  if (/^(?:#|№)?[\dOoОоIlІ|]{1,3}$/.test(tokens[0] || "")) {
     tokens.shift();
   }
 
-  while (tokens.length > 0 && !/^\d+$/.test(tokens[tokens.length - 1] || "")) {
+  while (tokens.length > 0 && !isOcrIntegerToken(tokens[tokens.length - 1])) {
     tokens.pop();
   }
 
   if (tokens.length < 6) return null;
 
   let numericStart = tokens.length;
-  while (numericStart > 0 && /^\d+$/.test(tokens[numericStart - 1] || "")) {
+  while (numericStart > 0 && isOcrIntegerToken(tokens[numericStart - 1])) {
     numericStart -= 1;
   }
 
   const nameTokens = tokens.slice(0, numericStart);
-  const numericTokens = tokens.slice(numericStart);
+  const numericTokens = tokens.slice(numericStart).map(normalizeOcrNumberToken).filter(Boolean);
   if (nameTokens.length === 0 || numericTokens.length < 5) return null;
 
   const character_name = nameTokens
@@ -295,6 +309,10 @@ function formatStat(value: number) {
   return new Intl.NumberFormat("ru-RU").format(value || 0);
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function uniqueClanOptions(characters: any[]) {
   const byKey = new Map<string, { key: string; clan_id: string | null; clan_name: string; region: string | null; character_name: string }>();
 
@@ -316,6 +334,101 @@ function uniqueClanOptions(characters: any[]) {
   }
 
   return [...byKey.values()].sort((a, b) => a.clan_name.localeCompare(b.clan_name, "ru"));
+}
+
+type OcrCandidate = {
+  label: string;
+  canvas: HTMLCanvasElement;
+};
+
+async function loadImageSource(file: File): Promise<{ source: CanvasImageSource; width: number; height: number; close?: () => void }> {
+  if ("createImageBitmap" in window) {
+    const bitmap = await createImageBitmap(file);
+    return {
+      source: bitmap,
+      width: bitmap.width,
+      height: bitmap.height,
+      close: () => bitmap.close(),
+    };
+  }
+
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Не удалось прочитать изображение."));
+    img.src = URL.createObjectURL(file);
+  });
+
+  return {
+    source: image,
+    width: image.naturalWidth,
+    height: image.naturalHeight,
+    close: () => URL.revokeObjectURL(image.src),
+  };
+}
+
+function buildOcrCanvas(
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  crop: { x: number; y: number; width: number; height: number },
+  mode: "threshold" | "contrast",
+) {
+  const sx = Math.max(0, Math.floor(sourceWidth * crop.x));
+  const sy = Math.max(0, Math.floor(sourceHeight * crop.y));
+  const sw = Math.min(sourceWidth - sx, Math.floor(sourceWidth * crop.width));
+  const sh = Math.min(sourceHeight - sy, Math.floor(sourceHeight * crop.height));
+  const scale = Math.min(3, Math.max(1.6, 2600 / Math.max(sw, sh)));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.floor(sw * scale));
+  canvas.height = Math.max(1, Math.floor(sh * scale));
+
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("Canvas недоступен для OCR.");
+
+  context.imageSmoothingEnabled = false;
+  context.drawImage(source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  for (let index = 0; index < data.length; index += 4) {
+    const gray = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+    const contrasted = Math.max(0, Math.min(255, (gray - 118) * 2.7 + 128));
+    const value = mode === "threshold"
+      ? (contrasted > 150 ? 0 : 255)
+      : 255 - contrasted;
+    data[index] = value;
+    data[index + 1] = value;
+    data[index + 2] = value;
+    data[index + 3] = 255;
+  }
+  context.putImageData(imageData, 0, 0);
+
+  return canvas;
+}
+
+async function buildOcrCandidates(file: File): Promise<OcrCandidate[]> {
+  const image = await loadImageSource(file);
+  try {
+    const crops = [
+      { label: "таблица справа", x: 0.28, y: 0.04, width: 0.70, height: 0.70 },
+      { label: "таблица широко", x: 0.22, y: 0.00, width: 0.78, height: 0.78 },
+      { label: "полный скрин", x: 0.00, y: 0.00, width: 1.00, height: 1.00 },
+    ];
+
+    return crops.flatMap((crop) => [
+      {
+        label: `${crop.label} · контраст`,
+        canvas: buildOcrCanvas(image.source, image.width, image.height, crop, "contrast"),
+      },
+      {
+        label: `${crop.label} · порог`,
+        canvas: buildOcrCanvas(image.source, image.width, image.height, crop, "threshold"),
+      },
+    ]);
+  } finally {
+    image.close?.();
+  }
 }
 
 export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) {
@@ -486,7 +599,41 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
     setStatus("Отправляю запрос боту...");
     const response = await fetch(`/api/sc/guilds/${guildId}/cw-post`, { method: "POST" });
     const body = await response.json().catch(() => ({}));
-    setStatus(response.ok ? "Запрос поставлен в очередь. Бот отправит КВ-пост через Supabase realtime." : body.error || "Ошибка запуска КВ-поста.");
+    if (!response.ok) {
+      setStatus(body.error || "Ошибка запуска КВ-поста.");
+      return;
+    }
+
+    const actionId = body.action?.id;
+    if (!actionId) {
+      setStatus("Запрос поставлен в очередь, но сайт не получил ID действия.");
+      return;
+    }
+
+    setStatus("Запрос поставлен в очередь. Проверяю ответ бота...");
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await wait(1500);
+      const statusResponse = await fetch(`/api/sc/guilds/${guildId}/cw-post?actionId=${encodeURIComponent(actionId)}`);
+      const statusBody = await statusResponse.json().catch(() => ({}));
+      const action = statusBody.action;
+      if (!statusResponse.ok || !action) continue;
+
+      if (action.status === "done") {
+        setStatus("КВ-пост отправлен ботом в выбранный Discord-канал.");
+        return;
+      }
+
+      if (action.status === "failed") {
+        setStatus(action.error_message || "Бот не смог отправить КВ-пост.");
+        return;
+      }
+
+      if (action.status === "processing") {
+        setStatus("Бот принял запрос и отправляет КВ-пост...");
+      }
+    }
+
+    setStatus("Запрос создан, но бот ещё не подтвердил отправку. Проверь, что бот перезапущен и Supabase Realtime включён.");
   }
 
   async function mutateSquads(payload: Record<string, unknown>) {
@@ -573,24 +720,44 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
   }
 
   async function readScreenshot(file: File) {
-    setOcrStatus("Распознаю скрин. Файл не отправляется на сервер.");
+    setOcrStatus("Готовлю скрин: обрезка таблицы, контраст и OCR. Файл не отправляется на сервер.");
     setStatus("OCR...");
 
     try {
       const { createWorker } = await import("tesseract.js");
       const worker = await createWorker("eng+rus");
-      const result = await worker.recognize(file);
-      await worker.terminate();
+      const candidates = await buildOcrCandidates(file);
+      let bestRows: CwResultRow[] = [];
+      let bestLabel = "";
+      let bestTextLength = 0;
 
-      const rows = parseOcrResultRows(result.data.text || "");
-      setOcrPreviewRows(rows);
-      setResultText(rowsToText(rows));
+      try {
+        for (const candidate of candidates) {
+          setOcrStatus(`OCR: ${candidate.label}...`);
+          const result = await worker.recognize(candidate.canvas);
+          const text = result.data.text || "";
+          const rows = parseOcrResultRows(text);
+          if (rows.length > bestRows.length || (rows.length === bestRows.length && text.length > bestTextLength)) {
+            bestRows = rows;
+            bestLabel = candidate.label;
+            bestTextLength = text.length;
+          }
+          if (rows.length >= 8) break;
+        }
+      } finally {
+        await worker.terminate();
+      }
+
+      setOcrPreviewRows(bestRows);
+      if (bestRows.length > 0) {
+        setResultText(rowsToText(bestRows));
+      }
       setOcrStatus(
-        rows.length
-          ? `Распознано строк: ${rows.length}. Проверь строки ниже и нажми “Загрузить табы”.`
-          : "OCR не нашёл строки статистики. Попробуй более чёткий скрин или вставь строки вручную.",
+        bestRows.length
+          ? `Распознано строк: ${bestRows.length}. Лучший вариант: ${bestLabel}. Проверь строки ниже и нажми “Загрузить табы”.`
+          : `OCR не нашёл строки статистики. Лучший вариант: ${bestLabel || "нет"} (${bestTextLength} символов). Попробуй скрин без затемнения/движения или вставь строки вручную.`,
       );
-      setStatus(rows.length ? "OCR готов." : "OCR без строк.");
+      setStatus(bestRows.length ? "OCR готов." : "OCR без строк.");
     } catch (error) {
       setOcrStatus(error instanceof Error ? error.message : "OCR failed.");
       setStatus("OCR ошибка.");
