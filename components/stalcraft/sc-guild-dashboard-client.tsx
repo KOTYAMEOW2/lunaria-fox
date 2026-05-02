@@ -309,6 +309,19 @@ function formatStat(value: number) {
   return new Intl.NumberFormat("ru-RU").format(value || 0);
 }
 
+function formatMskDateTime(value: string | null | undefined) {
+  if (!value) return "нет данных";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "нет данных";
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Moscow",
+  }).format(date);
+}
+
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -814,8 +827,9 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
               </article>
               <article className="sc-overview-card">
                 <span>Выброс</span>
-                <strong>{data.emission?.state || "idle"}</strong>
-                <p>{data.emission?.updated_at || "нет истории"}</p>
+                <strong>{data.emission?.state === "active" ? "active" : "idle"}</strong>
+                <p>{data.emission?.raw?.region || settings.region || "регион не задан"} · {formatMskDateTime(data.emission?.last_seen_at || data.emission?.updated_at)}</p>
+                <p>старт {formatMskDateTime(data.emission?.last_started_at || data.emission?.started_at)} · конец {formatMskDateTime(data.emission?.last_ended_at || data.emission?.ended_at)}</p>
               </article>
               <article className="sc-overview-card">
                 <span>Клан</span>
@@ -881,6 +895,11 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                 Сайт пока не видит кланы на твоих персонажах. Открой страницу STALCRAFT, нажми “Обновить персонажей” и выбери персонажа.
               </div>
             ) : null}
+
+            <div className="panel-note">
+              Авто-выбросы работают через официальный endpoint <code>https://eapi.stalcraft.net/{"{REGION}"}/emission</code>.
+              Для уведомлений выбери регион сервера и канал “Выбросы”.
+            </div>
 
             <div className="section sc-inner-section">
               <h3>Каналы Discord</h3>

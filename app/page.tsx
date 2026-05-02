@@ -10,6 +10,7 @@ type EmissionEvent = {
   event_type: string | null;
   title: string | null;
   message: string | null;
+  meta: Record<string, any> | null;
   created_at: string | null;
 };
 
@@ -19,7 +20,7 @@ async function getRecentEmissionEvents() {
 
   const { data, error } = await supabase
     .from("sc_logs")
-    .select("id, event_type, title, message, created_at")
+    .select("id, event_type, title, message, meta, created_at")
     .in("event_type", ["emission_active", "emission_idle", "emission_start", "emission_end"])
     .order("created_at", { ascending: false })
     .limit(4);
@@ -41,6 +42,12 @@ function formatEmissionTime(value: string | null) {
 
 function emissionLabel(eventType: string | null) {
   return eventType === "emission_active" || eventType === "emission_start" ? "Начало" : "Конец";
+}
+
+function emissionMeta(event: EmissionEvent) {
+  const region = event.meta?.region ? ` · ${event.meta.region}` : "";
+  const source = event.meta?.source ? ` · ${event.meta.source}` : "";
+  return `${event.title || "данные получены от бота"}${region}${source}`;
 }
 
 export default async function HomePage() {
@@ -90,7 +97,7 @@ export default async function HomePage() {
                 <div className="sc-emission-latest">
                   <span>{emissionLabel(emissions[0].event_type)}</span>
                   <strong>{formatEmissionTime(emissions[0].created_at)} МСК</strong>
-                  <small>{emissions[0].title || "данные получены от бота"}</small>
+                  <small>{emissionMeta(emissions[0])}</small>
                 </div>
               ) : (
                 <div className="sc-emission-latest sc-emission-empty">
