@@ -198,6 +198,7 @@ create table public.sc_guild_settings (
   cw_post_channel_id text,
   absence_channel_id text,
   results_channel_id text,
+  squads_channel_id text,
   emission_channel_id text,
   logs_channel_id text,
   sc_commands_channel_id text,
@@ -442,7 +443,7 @@ create table public.sc_admin_audit_logs (
 create table public.sc_admin_bot_actions (
   id uuid primary key default gen_random_uuid(),
   guild_id text not null references public.sc_guilds(guild_id) on delete cascade,
-  action text not null check (action in ('leave_guild')),
+  action text not null check (action in ('leave_guild', 'send_cw_post')),
   status text not null default 'pending' check (status in ('pending', 'processing', 'done', 'failed', 'cancelled')),
   reason text,
   requested_by text,

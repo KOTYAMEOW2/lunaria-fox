@@ -118,6 +118,20 @@ function scoreOcrCandidate(values: number[], kd: number | null, kda: number | nu
   return penalty;
 }
 
+function scoreStalcraftTabCandidate(values: number[]) {
+  const [kills, deaths, assists, treasury, score] = values;
+  let penalty = 0;
+
+  if (kills < 0 || kills > 1000) penalty += 400;
+  if (deaths < 0 || deaths > 1000) penalty += 400;
+  if (assists < 0 || assists > 1000) penalty += 400;
+  if (treasury < 0 || treasury > 999999999) penalty += 250;
+  if (score < 0 || score > 999999999) penalty += 250;
+  if (treasury < Math.max(kills, deaths, assists) && score > treasury) penalty += 80;
+
+  return penalty;
+}
+
 function parseOcrNumbers(rawNumbers: string[]) {
   const decimalTail = rawNumbers.filter((token) => /[,.]/.test(token)).slice(-2);
   const kd = parseFloatStat(decimalTail[0]);
@@ -147,14 +161,73 @@ function parseOcrNumbers(rawNumbers: string[]) {
   };
 }
 
+function parseStalcraftScoreboardLine(line: string): CwResultRow | null {
+  const normalized = line
+    .replace(/[|¦]/g, " ")
+    .replace(/[^\p{L}\p{N}\s_[\].#-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) return null;
+
+  const tokens = normalized.split(/\s+/);
+  if (/^(?:#|№)?\d{1,3}$/.test(tokens[0] || "")) {
+    tokens.shift();
+  }
+
+  while (tokens.length > 0 && !/^\d+$/.test(tokens[tokens.length - 1] || "")) {
+    tokens.pop();
+  }
+
+  if (tokens.length < 6) return null;
+
+  let numericStart = tokens.length;
+  while (numericStart > 0 && /^\d+$/.test(tokens[numericStart - 1] || "")) {
+    numericStart -= 1;
+  }
+
+  const nameTokens = tokens.slice(0, numericStart);
+  const numericTokens = tokens.slice(numericStart);
+  if (nameTokens.length === 0 || numericTokens.length < 5) return null;
+
+  const character_name = nameTokens
+    .join(" ")
+    .replace(/[^\p{L}\p{N}\s_[\].#-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!character_name || character_name.length < 2) return null;
+
+  const partitionCandidates = buildPartitions(numericTokens, 5, 3)
+    .map((partition) => partition.map(groupedInt))
+    .map((values) => ({ values, score: scoreStalcraftTabCandidate(values) }))
+    .sort((a, b) => a.score - b.score);
+
+  const best = partitionCandidates[0]?.values;
+  if (!best) return null;
+
+  return {
+    character_name,
+    matches_count: 1,
+    kills: best[0] || 0,
+    deaths: best[1] || 0,
+    assists: best[2] || 0,
+    treasury_spent: best[3] || 0,
+    score: best[4] || 0,
+  };
+}
+
 function parseOcrResultRows(value: string): CwResultRow[] {
-  const ignored = /^(ник|игрок|player|name|kills?|убийств|смерт|death|assist|казна|score|счет|счёт|k\/d)/i;
+  const ignored = /^(сводка|преимущество|захваченные|информация|ник|игрок|player|name|kills?|убийств|смерт|death|assist|казна|score|счет|счёт|ранг|k\/d|у\s+с\s+п)/i;
 
   return value
     .split("\n")
     .map((line) => line.replace(/[|¦]/g, " ").trim())
     .filter((line) => line.length > 3 && !ignored.test(line))
     .map((line) => {
+      const stalcraftRow = parseStalcraftScoreboardLine(line);
+      if (stalcraftRow) return stalcraftRow;
+
       const numericMatches = [...line.matchAll(/\d+(?:[,.]\d+)?/g)];
       if (numericMatches.length < 6) return null;
 
@@ -265,6 +338,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
     cw_post_channel_id: data.settings?.cw_post_channel_id || "",
     absence_channel_id: data.settings?.absence_channel_id || "",
     results_channel_id: data.settings?.results_channel_id || "",
+    squads_channel_id: data.settings?.squads_channel_id || "",
     emission_channel_id: data.settings?.emission_channel_id || "",
     logs_channel_id: data.settings?.logs_channel_id || "",
     sc_commands_channel_id: data.settings?.sc_commands_channel_id || "",
@@ -352,6 +426,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
         cw_post_channel_id: settings.cw_post_channel_id || null,
         absence_channel_id: settings.absence_channel_id || null,
         results_channel_id: settings.results_channel_id || null,
+        squads_channel_id: settings.squads_channel_id || null,
         emission_channel_id: settings.emission_channel_id || null,
         logs_channel_id: settings.logs_channel_id || null,
         sc_commands_channel_id: settings.sc_commands_channel_id || null,
@@ -388,6 +463,30 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
 
   async function uploadResults() {
     await uploadRows(parseManualResultRows(resultText));
+  }
+
+  async function clearResults() {
+    const confirmed = window.confirm("Очистить все загруженные строки табов КВ для этого сервера?");
+    if (!confirmed) return;
+
+    setStatus("Очищаю таблицу...");
+    const response = await fetch(`/api/sc/guilds/${guildId}/cw-results`, { method: "DELETE" });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) {
+      setResultRows([]);
+      setOcrPreviewRows([]);
+      setResultText("");
+      setStatus(`Таблица очищена. Удалено строк: ${body.count || 0}.`);
+    } else {
+      setStatus(body.error || "Ошибка очистки таблицы.");
+    }
+  }
+
+  async function forceCwPost() {
+    setStatus("Отправляю запрос боту...");
+    const response = await fetch(`/api/sc/guilds/${guildId}/cw-post`, { method: "POST" });
+    const body = await response.json().catch(() => ({}));
+    setStatus(response.ok ? "Запрос поставлен в очередь. Бот отправит КВ-пост через Supabase realtime." : body.error || "Ошибка запуска КВ-поста.");
   }
 
   async function mutateSquads(payload: Record<string, unknown>) {
@@ -561,6 +660,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
               <a className="primary-button sc-primary" href={`/dashboard/${guildId}/attendance`}>Посещения</a>
               <a className="secondary-button sc-secondary" href={`/dashboard/${guildId}/squads`}>Отряды КВ</a>
               <a className="ghost-button sc-ghost" href={`/dashboard/${guildId}/cw-tabs`}>Табы</a>
+              <button className="secondary-button sc-secondary" onClick={forceCwPost} type="button">Запустить КВ-пост сейчас</button>
               {settings.clan_id ? <a className="ghost-button sc-ghost" href={`/clans/${settings.clan_id}`}>Клановая таблица</a> : null}
               <a className="ghost-button sc-ghost" href={`/dashboard/${guildId}/settings`}>Настройки</a>
             </div>
@@ -622,6 +722,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                   ["cw_post_channel_id", "КВ-пост"],
                   ["absence_channel_id", "Отсутствия"],
                   ["results_channel_id", "Итоги"],
+                  ["squads_channel_id", "Таблица отрядов"],
                   ["emission_channel_id", "Выбросы"],
                   ["logs_channel_id", "Логи Discord"],
                   ["sc_commands_channel_id", "sc-x-команды"],
@@ -677,6 +778,9 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                 <h2>Посещения и отсутствия</h2>
               </div>
               <span className="badge success">Участвуют {attendanceSummary.attending} / Отсутствуют {attendanceSummary.absent}</span>
+            </div>
+            <div className="sc-overview-actions" style={{ marginBottom: 16 }}>
+              <button className="primary-button sc-primary" onClick={forceCwPost} type="button">Запустить КВ-пост сейчас</button>
             </div>
             <div className="activity-feed-grid">
               {(data.attendance || []).map((row: any) => (
@@ -854,13 +958,16 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
               </div>
             ) : null}
             <div className="panel-note">
-              Если OCR ошибся, поправь строки вручную. Формат строки: <code>ник;матчей;kills;deaths;assists;казна;счёт</code>.
+              Если OCR ошибся, поправь строки вручную. Формат строки: <code>ник;У;С;П;казна;счёт</code> или <code>ник;матчей;У;С;П;казна;счёт</code>.
             </div>
             <div className="field">
               <label>Распознанные или ручные строки</label>
-              <textarea value={resultText} onChange={(event) => setResultText(event.target.value)} placeholder="PlayerOne;12;3;5;1000;320" />
+              <textarea value={resultText} onChange={(event) => setResultText(event.target.value)} placeholder="MihaiGray;4;12;4;64081;3831" />
             </div>
-            <button className="primary-button sc-primary" onClick={uploadResults} type="button">Загрузить табы</button>
+            <div className="sc-overview-actions">
+              <button className="primary-button sc-primary" onClick={uploadResults} type="button">Загрузить табы</button>
+              <button className="ghost-button sc-danger-button" disabled={resultRows.length === 0} onClick={clearResults} type="button">Очистить таблицу</button>
+            </div>
 
             <div className="sc-table-card">
               <div className="dashboard-head">

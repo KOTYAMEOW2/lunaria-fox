@@ -13,6 +13,7 @@ const schema = z.object({
   cw_post_channel_id: z.string().nullable(),
   absence_channel_id: z.string().nullable(),
   results_channel_id: z.string().nullable(),
+  squads_channel_id: z.string().nullable(),
   emission_channel_id: z.string().nullable(),
   logs_channel_id: z.string().nullable(),
   sc_commands_channel_id: z.string().nullable(),

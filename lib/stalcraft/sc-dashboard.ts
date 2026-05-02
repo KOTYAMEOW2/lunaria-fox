@@ -210,6 +210,7 @@ export async function saveScGuildSettings(
     cw_post_channel_id: string | null;
     absence_channel_id: string | null;
     results_channel_id: string | null;
+    squads_channel_id: string | null;
     emission_channel_id: string | null;
     logs_channel_id: string | null;
     sc_commands_channel_id: string | null;
@@ -232,6 +233,7 @@ export async function saveScGuildSettings(
       cw_post_channel_id: payload.cw_post_channel_id,
       absence_channel_id: payload.absence_channel_id,
       results_channel_id: payload.results_channel_id,
+      squads_channel_id: payload.squads_channel_id,
       emission_channel_id: payload.emission_channel_id,
       logs_channel_id: payload.logs_channel_id,
       sc_commands_channel_id: payload.sc_commands_channel_id,
@@ -295,6 +297,33 @@ export async function addCwResultRows(
   const { error } = await supabase().from("sc_cw_result_queue").insert(payload);
   if (error) throw error;
   return payload.length;
+}
+
+export async function clearCwResultRows(guildId: string) {
+  const { count, error } = await supabase()
+    .from("sc_cw_result_queue")
+    .delete({ count: "exact" })
+    .eq("guild_id", guildId);
+  if (error) throw error;
+  return count || 0;
+}
+
+export async function requestCwPostNow(guildId: string, userId: string) {
+  const { data, error } = await supabase()
+    .from("sc_admin_bot_actions")
+    .insert({
+      guild_id: guildId,
+      action: "send_cw_post",
+      status: "pending",
+      reason: "manual_dashboard_test",
+      requested_by: userId,
+      result: {},
+    })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data;
 }
 
 export async function createCwSquad(
