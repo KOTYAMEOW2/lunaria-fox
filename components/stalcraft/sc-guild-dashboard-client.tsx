@@ -382,6 +382,15 @@ async function loadImageSource(file: File): Promise<{ source: CanvasImageSource;
   };
 }
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Не удалось подготовить скрин для ИИ-проверки."));
+    reader.readAsDataURL(file);
+  });
+}
+
 function buildOcrCanvas(
   source: CanvasImageSource,
   sourceWidth: number,
@@ -739,7 +748,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
   }
 
   async function readScreenshot(file: File) {
-    setOcrStatus("Готовлю скрин: обрезка таблицы, контраст и OCR. Файл не отправляется на сервер.");
+    setOcrStatus("Готовлю скрин: локальный OCR, затем ИИ-проверка если она включена на сервере.");
     setStatus("OCR...");
 
     try {
@@ -765,6 +774,27 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
         }
       } finally {
         await worker.terminate();
+      }
+
+      try {
+        setOcrStatus("ИИ проверяет скрин и исправляет строки таба...");
+        const response = await fetch(`/api/sc/guilds/${guildId}/cw-results/ai`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            imageDataUrl: await fileToDataUrl(file),
+            ocrRows: bestRows,
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (response.ok && Array.isArray(body.rows) && body.rows.length > 0) {
+          bestRows = body.rows;
+          bestLabel = "AI verification";
+        } else if (response.status !== 501) {
+          setOcrStatus(body.error || "ИИ не смог улучшить распознавание, оставляю OCR-результат.");
+        }
+      } catch {
+        setOcrStatus("ИИ-проверка недоступна, оставляю OCR-результат.");
       }
 
       setOcrPreviewRows(bestRows);
