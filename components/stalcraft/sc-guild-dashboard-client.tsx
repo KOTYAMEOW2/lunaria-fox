@@ -283,6 +283,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
 
   const channelOptions = data.channels || [];
   const roleOptions = data.discordRoles || [];
+  const missingSquadTables = (data.schemaWarnings || []).some((warning: string) => warning.includes("sc_cw_squad"));
   const attendanceSummary = useMemo(() => {
     const rows = data.attendance || [];
     return {
@@ -703,6 +704,13 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
               <span className="badge muted">{status || `${squads.length} squad(s)`}</span>
             </div>
 
+            {missingSquadTables ? (
+              <div className="panel-note sc-panel-warning">
+                В Supabase не найдены таблицы отрядов. Выполни SQL <code>supabase/sql/20260502_fix_missing_cw_squads.sql</code>,
+                затем обнови страницу.
+              </div>
+            ) : null}
+
             <div className="section sc-inner-section">
               <h3>Создать отряд</h3>
               <div className="form-grid">
@@ -726,7 +734,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                   <input value={squadForm.description} onChange={(event) => setSquadForm({ ...squadForm, description: event.target.value })} placeholder="Задача отряда, состав, роль на КВ" />
                 </div>
               </div>
-              <button className="primary-button sc-primary" onClick={createSquad} type="button">Создать отряд</button>
+              <button className="primary-button sc-primary" disabled={missingSquadTables} onClick={createSquad} type="button">Создать отряд</button>
             </div>
 
             <div className="sc-squad-grid">

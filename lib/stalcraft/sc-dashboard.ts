@@ -29,6 +29,7 @@ export type ScGuildDashboardData = {
   squadMembers: any[];
   logs: any[];
   emission: any | null;
+  schemaWarnings: string[];
 };
 
 const BOT_GUILD_STALE_MS = 20 * 60 * 1000;
@@ -43,6 +44,20 @@ function isFreshBotGuild(row: any) {
   if (!row || row.is_available === false) return false;
   const updatedAt = row.updated_at ? Date.parse(row.updated_at) : 0;
   return Number.isFinite(updatedAt) && Date.now() - updatedAt <= BOT_GUILD_STALE_MS;
+}
+
+function isMissingTableError(error: any, table: string) {
+  const text = [
+    error?.code,
+    error?.message,
+    error?.details,
+    error?.hint,
+  ].filter(Boolean).join(" ");
+
+  return (
+    /PGRST20[45]/i.test(text) ||
+    new RegExp(`(${table}|schema cache|relation).*(${table}|schema cache|does not exist|not find)`, "i").test(text)
+  );
 }
 
 export async function getScManagedGuilds(session: DiscordSession | null): Promise<ScManagedGuild[]> {
@@ -142,16 +157,27 @@ export async function getScGuildDashboardData(guildId: string): Promise<ScGuildD
   const { data: equipment } = memberIds.length
     ? await supabase().from("sc_equipment").select("*").in("discord_user_id", memberIds)
     : { data: [] as any[] };
+  const schemaWarnings: string[] = [];
   const squadIds = [] as string[];
-  const { data: squads } = await supabase()
+  const { data: squads, error: squadsError } = await supabase()
     .from("sc_cw_squads")
     .select("*")
     .eq("guild_id", guildId)
     .order("created_at", { ascending: true });
+  if (squadsError && isMissingTableError(squadsError, "sc_cw_squads")) {
+    schemaWarnings.push("missing_sc_cw_squads");
+  } else if (squadsError) {
+    schemaWarnings.push(squadsError.message || "sc_cw_squads_read_failed");
+  }
   for (const squad of squads || []) squadIds.push(squad.id);
-  const { data: squadMembers } = squadIds.length
+  const { data: squadMembers, error: squadMembersError } = squadIds.length
     ? await supabase().from("sc_cw_squad_members").select("*").in("squad_id", squadIds).order("created_at")
     : { data: [] as any[] };
+  if (squadMembersError && isMissingTableError(squadMembersError, "sc_cw_squad_members")) {
+    schemaWarnings.push("missing_sc_cw_squad_members");
+  } else if (squadMembersError) {
+    schemaWarnings.push(squadMembersError.message || "sc_cw_squad_members_read_failed");
+  }
 
   return {
     guild: guild.data || null,
@@ -169,6 +195,7 @@ export async function getScGuildDashboardData(guildId: string): Promise<ScGuildD
     squadMembers: squadMembers || [],
     logs: logs.data || [],
     emission: emission.data || null,
+    schemaWarnings,
   };
 }
 
@@ -336,7 +363,12 @@ export async function createCwSquad(
     .select("*")
     .single();
 
-  if (error) throw error;
+  if (error) {
+    if (isMissingTableError(error, "sc_cw_squads")) {
+      throw new Error("В Supabase нет таблицы sc_cw_squads. Выполни SQL: supabase/sql/20260502_fix_missing_cw_squads.sql");
+    }
+    throw error;
+  }
   return data;
 }
 
