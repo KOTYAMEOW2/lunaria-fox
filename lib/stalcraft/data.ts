@@ -549,20 +549,23 @@ export async function listEnabledStalcraftCommunities() {
   const supabase = requireSupabase();
   const { data: settings, error } = await supabase
     .from("sc_guild_settings")
-    .select("guild_id, community_name, required_clan_name, verified_role_name, updated_at")
+    .select("guild_id, community_name, clan_id, clan_name, required_clan_id, required_clan_name, verified_role_name, updated_at")
     .eq("enabled", true)
     .order("updated_at", { ascending: false })
     .limit(80);
 
   if (error) throw error;
 
-  const rows = (settings || []) as Array<{
+  const rows = ((settings || []) as Array<{
     guild_id: string;
     community_name: string | null;
+    clan_id: string | null;
+    clan_name: string | null;
+    required_clan_id: string | null;
     required_clan_name: string | null;
     verified_role_name: string | null;
     updated_at: string | null;
-  }>;
+  }>).filter((row) => row.clan_id || row.required_clan_id || row.clan_name || row.required_clan_name);
 
   if (rows.length === 0) return [] as StalcraftCommunityRow[];
 
@@ -586,7 +589,7 @@ export async function listEnabledStalcraftCommunities() {
       guild_name: guild?.name || null,
       guild_icon: guild?.icon || null,
       community_name: row.community_name,
-      required_clan_name: row.required_clan_name,
+      required_clan_name: row.required_clan_name || row.clan_name,
       verified_role_name: row.verified_role_name,
       updated_at: row.updated_at,
     } satisfies StalcraftCommunityRow;

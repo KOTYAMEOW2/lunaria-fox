@@ -66,27 +66,27 @@ export default async function StalcraftPage({ searchParams }: { searchParams?: P
         <div className="section">
           <div className="dashboard-head">
             <div>
-              <span className="eyebrow">STALCRAFT Servers</span>
-              <h2>Серверы, где включён STALCRAFT-модуль</h2>
-              <p className="muted">После включения через Dashboard бот открывает на сервере `/sc-profile`, `/sc-sync` и `/sc-player`.</p>
+              <span className="eyebrow">STALCRAFT Clans</span>
+              <h2>Серверы, где выбран STALCRAFT-клан</h2>
+              <p className="muted">Здесь отображаются только серверы, где в Dashboard выбран клан. Обычные серверы бота без клановой настройки сюда не попадают.</p>
             </div>
           </div>
           <div className="command-grid">
             {communities.length > 0 ? communities.map((community) => (
               <article className="command-card" key={community.guild_id}>
-                <span className="eyebrow">STALCRAFT enabled</span>
+                <span className="eyebrow">CLAN LINKED</span>
                 <h3>{community.community_name || community.guild_name || community.guild_id}</h3>
                 <p>
                   {community.required_clan_name
-                    ? `Требуемый клан: ${community.required_clan_name}.`
-                    : "Клан не ограничен настройками сервера."}
+                    ? `Клан: ${community.required_clan_name}.`
+                    : "Клан выбран, но имя пока не синхронизировано."}
                 </p>
                 <p className="muted">Verified-роль: {community.verified_role_name || "STALCRAFT Verified"}</p>
               </article>
             )) : (
               <article className="panel">
-                <h3>Пока нет включённых STALCRAFT-серверов</h3>
-                <p>Владелец сервера или лидер клана может открыть Dashboard сервера и включить STALCRAFT Settings.</p>
+                <h3>Пока нет серверов с выбранным кланом</h3>
+                <p>Лидер клана открывает Dashboard сервера, привязывает персонажа и выбирает клан в настройках STALCRAFT.</p>
               </article>
             )}
           </div>
