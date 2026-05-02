@@ -395,8 +395,14 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || "Squad request failed.");
+    const text = await response.text();
+    let body: any = {};
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch {
+      body = {};
+    }
+    if (!response.ok) throw new Error(body.error || text || `Squad request failed (${response.status}).`);
     return body;
   }
 

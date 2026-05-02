@@ -275,25 +275,59 @@ export async function createCwSquad(
   userId: string,
   payload: { name: string; description?: string | null; voice_channel_id?: string | null },
 ) {
-  const { data: settings } = await supabase()
-    .from("sc_guild_settings")
-    .select("clan_id")
-    .eq("guild_id", guildId)
-    .maybeSingle();
+  const [{ data: guild }, { data: settings }] = await Promise.all([
+    supabase().from("sc_guilds").select("guild_id, is_available").eq("guild_id", guildId).maybeSingle(),
+    supabase()
+      .from("sc_guild_settings")
+      .select("clan_id, clan_name, region, community_name")
+      .eq("guild_id", guildId)
+      .maybeSingle(),
+  ]);
+  if (!guild?.guild_id || guild.is_available === false) {
+    throw new Error("Бот ещё не синхронизировал этот сервер. Перезапусти бота или подожди обновление sc_guilds.");
+  }
+
+  let clanId = settings?.clan_id || null;
+  if (clanId) {
+    const { data: existingClan } = await supabase()
+      .from("sc_clans")
+      .select("clan_id")
+      .eq("clan_id", clanId)
+      .maybeSingle();
+
+    if (!existingClan) {
+      const { error: clanError } = await supabase().from("sc_clans").upsert(
+        {
+          clan_id: clanId,
+          clan_name: settings?.clan_name || settings?.community_name || clanId,
+          region: settings?.region || null,
+          owner_guild_id: guildId,
+          source: "dashboard",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "clan_id" },
+      );
+      if (clanError) {
+        clanId = null;
+      }
+    }
+  }
+
   const { data: session } = await supabase()
     .from("sc_cw_sessions")
-    .select("id")
+    .select("id, clan_id")
     .eq("guild_id", guildId)
     .order("cw_date", { ascending: false })
     .limit(1)
     .maybeSingle();
+  const sessionId = session?.id && (!clanId || !session.clan_id || session.clan_id === clanId) ? session.id : null;
 
   const { data, error } = await supabase()
     .from("sc_cw_squads")
     .insert({
       guild_id: guildId,
-      clan_id: settings?.clan_id || null,
-      session_id: session?.id || null,
+      clan_id: clanId,
+      session_id: sessionId,
       name: payload.name.trim(),
       description: payload.description?.trim() || null,
       voice_channel_id: payload.voice_channel_id || null,
