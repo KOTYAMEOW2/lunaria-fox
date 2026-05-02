@@ -57,6 +57,7 @@ export function SiteHeader() {
         <nav className="header-nav">
           <span className="sc-header-status">SC-only</span>
           <Link className="nav-pill" href="/stalcraft">STALCRAFT</Link>
+          <Link className="nav-pill" href="/clans">Рейтинг кланов</Link>
           <a className="secondary-button" href={publicEnv.inviteUrl} rel="noreferrer" target="_blank">Invite Bot</a>
           {session ? (
             <>

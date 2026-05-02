@@ -33,6 +33,7 @@ export type ScGuildDashboardData = {
 };
 
 const BOT_GUILD_STALE_MS = 20 * 60 * 1000;
+export const MAX_CW_SQUADS_PER_GUILD = 7;
 
 function supabase() {
   const client = getSupabaseAdmin();
@@ -381,6 +382,20 @@ export async function createCwSquad(
   ]);
   if (!guild?.guild_id || guild.is_available === false) {
     throw new Error("Бот ещё не синхронизировал этот сервер. Перезапусти бота или подожди обновление sc_guilds.");
+  }
+
+  const { count: existingSquads, error: countError } = await supabase()
+    .from("sc_cw_squads")
+    .select("id", { count: "exact", head: true })
+    .eq("guild_id", guildId);
+  if (countError) {
+    if (isMissingTableError(countError, "sc_cw_squads")) {
+      throw new Error("В Supabase нет таблицы sc_cw_squads. Выполни SQL: supabase/sql/20260502_fix_missing_cw_squads.sql");
+    }
+    throw countError;
+  }
+  if ((existingSquads || 0) >= MAX_CW_SQUADS_PER_GUILD) {
+    throw new Error(`На одном сервере можно создать максимум ${MAX_CW_SQUADS_PER_GUILD} отрядов КВ.`);
   }
 
   let clanId = settings?.clan_id || null;

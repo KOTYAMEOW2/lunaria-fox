@@ -26,6 +26,8 @@ const navItems: Array<[ScDashboardSection, string, string]> = [
   ["tabs", "Табы КВ", "cw-tabs"],
 ];
 
+const MAX_CW_SQUADS = 7;
+
 type CwResultRow = {
   character_name: string;
   matches_count: number;
@@ -667,6 +669,10 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
   }
 
   async function createSquad() {
+    if (squads.length >= MAX_CW_SQUADS) {
+      setStatus(`Лимит отрядов достигнут: максимум ${MAX_CW_SQUADS} на сервер.`);
+      return;
+    }
     if (!squadForm.name.trim()) {
       setStatus("Название отряда обязательно.");
       return;
@@ -1003,6 +1009,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
 
             <div className="section sc-inner-section">
               <h3>Создать отряд</h3>
+              <p className="muted">Лимит: {squads.length}/{MAX_CW_SQUADS} отрядов на сервер.</p>
               <div className="form-grid">
                 <div className="field">
                   <label>Название</label>
@@ -1024,7 +1031,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                   <input value={squadForm.description} onChange={(event) => setSquadForm({ ...squadForm, description: event.target.value })} placeholder="Задача отряда, состав, роль на КВ" />
                 </div>
               </div>
-              <button className="primary-button sc-primary" disabled={missingSquadTables} onClick={createSquad} type="button">Создать отряд</button>
+              <button className="primary-button sc-primary" disabled={missingSquadTables || squads.length >= MAX_CW_SQUADS} onClick={createSquad} type="button">Создать отряд</button>
             </div>
 
             <div className="sc-squad-grid">

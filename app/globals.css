@@ -2624,6 +2624,48 @@ body {
   background: rgba(155, 124, 255, 0.14);
 }
 
+.clan-rating-hero {
+  max-width: 980px;
+}
+
+.sc-rating-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 24px 0 18px;
+}
+
+.sc-rating-table-card {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(155, 124, 255, 0.18), transparent 34%),
+    radial-gradient(circle at 88% 12%, rgba(136, 255, 192, 0.12), transparent 30%),
+    rgba(4, 8, 7, 0.78);
+}
+
+.sc-rating-table {
+  min-width: 1080px;
+}
+
+.sc-rating-table td:nth-child(2) strong {
+  display: block;
+  color: #fffaf0;
+  font-size: 1rem;
+}
+
+.sc-rating-table td:nth-child(2) small {
+  display: block;
+  margin-top: 4px;
+  color: rgba(229, 221, 255, 0.58);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+}
+
+.sc-rating-table th:nth-child(7),
+.sc-rating-table td:nth-child(7) {
+  text-align: left;
+  min-width: 160px;
+}
+
 .sc-panel-warning {
   margin-top: 16px;
   border-color: rgba(155, 124, 255, 0.22);
@@ -2763,7 +2805,8 @@ body {
   .sc-ops-grid,
   .sc-flow-grid,
   .sc-dashboard-grid,
-  .sc-mission-strip {
+  .sc-mission-strip,
+  .sc-rating-summary {
     grid-template-columns: 1fr;
   }
 
