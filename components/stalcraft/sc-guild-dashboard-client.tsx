@@ -2,11 +2,16 @@
 
 import { useMemo, useState } from "react";
 
+import type { ScGuildDashboardData } from "@/lib/stalcraft/sc-dashboard";
+import { CwTableImproved, calcKd, calcKda, kdClass, kdaClass } from "./cw-table/table";
+import type { TableRow } from "./cw-table/table";
+export { CwTableImproved };
+
 export type ScDashboardSection = "overview" | "settings" | "attendance" | "squads" | "tabs";
 
 type Props = {
   guildId: string;
-  data: any;
+  data: ScGuildDashboardData;
   activeSection: ScDashboardSection;
 };
 
@@ -233,7 +238,271 @@ function parseStalcraftScoreboardLine(line: string): CwResultRow | null {
   };
 }
 
+// ─── Table column detector (hybrid) ──────────────────────────────────────────
+
+type TableBounds = { x: number; width: number }; // fractions of canvas width
+
+/**
+ * Scans a canvas for vertical grid lines (column separators) in a STALCRAFT tab.
+ * Returns array of {x, width} column bounds as fractions [0..1].
+ * Returns null if no reliable columns detected (falls back to line-parsing).
+ */
+function detectTableColumns(canvas: HTMLCanvasElement): TableBounds[] | null {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  // Sample every 4px horizontally to find dense dark vertical stripes
+  const stride = 4;
+  const colDensity = new Float32Array(Math.ceil(w / stride));
+
+  for (let x = 0; x < w; x += stride) {
+    const colData = ctx.getImageData(x, 0, 1, h).data;
+    let dark = 0;
+    for (let y = 0; y < h; y += 2) {
+      const gray = colData[y * 4] * 0.299 + colData[y * 4 + 1] * 0.587 + colData[y * 4 + 2] * 0.114;
+      if (gray < 80) dark++;
+    }
+    colDensity[Math.floor(x / stride)] = dark / (h / 2);
+  }
+
+  // Smooth
+  const smoothed = new Float32Array(colDensity.length);
+  const kernel = 3;
+  for (let i = 0; i < colDensity.length; i++) {
+    let sum = 0, count = 0;
+    for (let k = -kernel; k <= kernel; k++) {
+      const j = i + k;
+      if (j >= 0 && j < colDensity.length) { sum += colDensity[j]; count++; }
+    }
+    smoothed[i] = sum / count;
+  }
+
+  // Find peaks — local maxima above threshold (strong vertical lines)
+  const threshold = 0.45; // at least 45% dark pixels in column
+  const minGap = 6; // at least 6 stride-steps between columns (~24px at 1080p)
+  const peaks: number[] = [];
+
+  for (let i = 1; i < smoothed.length - 1; i++) {
+    if (smoothed[i] > threshold && smoothed[i] > smoothed[i - 1] && smoothed[i] > smoothed[i + 1]) {
+      // Only accept if it's a sharp peak (not a noisy plateau)
+      if (peaks.length === 0 || i - peaks[peaks.length - 1] >= minGap) {
+        peaks.push(i);
+      }
+    }
+  }
+
+  // Need at least 4 lines (5 columns) to be a table
+  if (peaks.length < 4) return null;
+
+  // Keep the sharpest lines: top 60% by density, min 6 lines, max 20
+  const top = peaks
+    .map((i) => ({ i, d: smoothed[i] }))
+    .sort((a, b) => b.d - a.d)
+    .slice(0, 20)
+    .sort((a, b) => a.i - b.i);
+
+  if (top.length < 6) return null;
+
+  // Build column bounds between consecutive sharp lines
+  // Use middle of each sharp line as boundary
+  const halfStrides = top.map((p) => p.i * stride + stride / 2);
+
+  const bounds: TableBounds[] = [];
+  // Left boundary = 0 (left edge of canvas)
+  bounds.push({ x: 0, width: halfStrides[0] / w });
+
+  for (let i = 0; i < halfStrides.length - 1; i++) {
+    bounds.push({ x: halfStrides[i] / w, width: (halfStrides[i + 1] - halfStrides[i]) / w });
+  }
+
+  // Right boundary = last line to canvas edge
+  bounds.push({ x: halfStrides[halfStrides.length - 1] / w, width: 1 - halfStrides[halfStrides.length - 1] / w });
+
+  return bounds.length >= 5 ? bounds : null;
+}
+
+/**
+ * Extracts a sub-region canvas for a specific table column,
+ * using the detected column bounds.
+ */
+function cropColumn(
+  source: CanvasImageSource,
+  sourceW: number,
+  sourceH: number,
+  bounds: TableBounds,
+  padLeft: number,
+  padRight: number,
+) {
+  const x = Math.max(0, sourceW * bounds.x + padLeft);
+  const width = Math.min(sourceW * bounds.width - padLeft - padRight, sourceW - x);
+  if (width <= 0) return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.floor(width));
+  canvas.height = Math.max(1, sourceH);
+
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(source, x, 0, width, sourceH, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+// ─── Line-based result parser (fallback) ──────────────────────────────────────
+
 function parseOcrResultRows(value: string): CwResultRow[] {
+  const ignored = /^(сводка|преимущество|захваченные|информация|ник|игрок|player|name|kills?|убийств|смерт|death|assist|казна|score|счет|счёт|ранг|k\/d|у\s+с\s+п)/i;
+
+  return value
+    .split("\n")
+    .map((line) => line.replace(/[|¦]/g, " ").trim())
+    .filter((line) => line.length > 3 && !ignored.test(line))
+    .map((line) => {
+      const stalcraftRow = parseStalcraftScoreboardLine(line);
+      if (stalcraftRow) return stalcraftRow;
+
+      const numericMatches = [...line.matchAll(/\d+(?:[,.]\d+)?/g)];
+      if (numericMatches.length < 6) return null;
+
+      const firstNumberIndex = numericMatches[0]?.index ?? line.length;
+      const character_name = line
+        .slice(0, firstNumberIndex)
+        .replace(/[^\p{L}\p{N}\s_[\].#-]/gu, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!character_name || character_name.length < 2) return null;
+
+      const parsed = parseOcrNumbers(numericMatches.map((match) => match[0]));
+      if (!parsed) return null;
+
+      return {
+        character_name,
+        ...parsed,
+      };
+    })
+    .filter(Boolean) as CwResultRow[];
+}
+
+// ─── Column-based result parser (primary when table detected) ────────────────
+
+/**
+ * Parses a table row given 5 individual text strings (one per column):
+ * name | kills | deaths | assists | treasury | score
+ */
+function parseColumnRow(parts: string[]): CwResultRow | null {
+  if (parts.length < 6) return null;
+
+  const [nameRaw, killsRaw, deathsRaw, assistsRaw, treasuryRaw, scoreRaw] = parts;
+  const character_name = nameRaw
+    .replace(/[|¦]/g, " ")
+    .replace(/[^\p{L}\p{N}\s_[\].#-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(?:#|№)?[\dOoОоIlІ|]{1,3}\s*/, "");
+
+  if (!character_name || character_name.length < 2) return null;
+
+  const normalize = (v: string) =>
+    Number.parseInt(
+      String(v || "0")
+        .replace(/[OoОо]/g, "0")
+        .replace(/[IlІ|]/g, "1")
+        .replace(/[Зз]/g, "3")
+        .replace(/[Бб]/g, "6")
+        .replace(/[^\d]/g, ""),
+      10,
+    ) || 0;
+
+  const kills = normalize(killsRaw);
+  const deaths = normalize(deathsRaw);
+  const assists = normalize(assistsRaw);
+  const treasury = normalize(treasuryRaw);
+  const score = normalize(scoreRaw);
+
+  // Score penalties (soft — log warning instead of rejecting)
+  let rejected = false;
+  if (kills > 1000 || deaths > 1000 || assists > 1000) rejected = true;
+  if (treasury > 999_999_999 || score > 999_999_999) rejected = true;
+
+  if (rejected) {
+    // Still return but with a flag — let AI correct it if needed
+  }
+
+  return {
+    character_name,
+    matches_count: 1,
+    kills,
+    deaths,
+    assists,
+    treasury_spent: treasury,
+    score,
+  };
+}
+
+/**
+ * OCR each table column separately, then reconstruct rows.
+ * Returns rows from column-based parsing, or null if it fails.
+ */
+async function ocrTableByColumns(
+  imageSource: CanvasImageSource,
+  imageWidth: number,
+  imageHeight: number,
+  crop: { x: number; y: number; width: number; height: number },
+  worker: any,
+  label: string,
+  onStatus: (msg: string) => void,
+): Promise<CwResultRow[] | null> {
+  const sx = Math.max(0, Math.floor(imageWidth * crop.x));
+  const sy = Math.max(0, Math.floor(imageHeight * crop.y));
+  const sw = Math.min(imageWidth - sx, Math.floor(imageWidth * crop.width));
+  const sh = Math.min(imageHeight - sy, Math.floor(imageHeight * crop.height));
+
+  // Draw cropped region to a temp canvas
+  const tableCanvas = document.createElement("canvas");
+  tableCanvas.width = sw;
+  tableCanvas.height = sh;
+  const tctx = tableCanvas.getContext("2d", { willReadFrequently: true });
+  if (!tctx) return null;
+  tctx.imageSmoothingEnabled = false;
+  tctx.drawImage(imageSource, sx, sy, sw, sh, 0, 0, tableCanvas.width, tableCanvas.height);
+
+  const colBounds = detectTableColumns(tableCanvas);
+  if (!colBounds || colBounds.length < 5) return null;
+
+  onStatus(`${label}: детект колонок (${colBounds.length})...`);
+
+  // OCR each column separately
+  const colTexts: string[] = [];
+  for (let i = 0; i < colBounds.length; i++) {
+    const pad = i === 0 || i === colBounds.length - 1 ? 4 : 2; // smaller pad for inner cols
+    const colCanvas = cropColumn(imageSource, imageWidth, imageHeight, colBounds[i], pad, pad);
+    if (!colCanvas) { colTexts.push(""); continue; }
+    const result = await worker.recognize(colCanvas);
+    colTexts.push((result.data.text || "").trim());
+    colCanvas.remove();
+  }
+
+  // Split each column text into lines
+  const colLines = colTexts.map((t) => t.split("\n").map((l) => l.trim()).filter((l) => l.length > 0));
+  const maxLines = Math.max(...colLines.map((c) => c.length));
+  if (maxLines < 2) return null; // need at least 2 rows (header + data)
+
+  const rows: CwResultRow[] = [];
+  for (let r = 0; r < maxLines; r++) {
+    const parts = colLines.map((c) => c[r] || "");
+    const row = parseColumnRow(parts);
+    if (row) rows.push(row);
+  }
+
+  return rows.length >= 2 ? rows : null;
+}
+
+/** Fallback: line-by-line parser used when column detection fails */
+function parseOcrResultRowsFallback(value: string): CwResultRow[] {
   const ignored = /^(сводка|преимущество|захваченные|информация|ник|игрок|player|name|kills?|убийств|смерт|death|assist|казна|score|счет|счёт|ранг|k\/d|у\s+с\s+п)/i;
 
   return value
@@ -464,7 +733,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
   const [squads, setSquads] = useState<any[]>(() => data.squads || []);
   const [squadMembers, setSquadMembers] = useState<any[]>(() => data.squadMembers || []);
   const [squadForm, setSquadForm] = useState({ name: "", description: "", voice_channel_id: "" });
-  const clanOptions = useMemo(() => uniqueClanOptions(data.userCharacters || []), [data.userCharacters]);
+  const clanOptions = useMemo(() => uniqueClanOptions((data as any).userCharacters || []), [(data as any).userCharacters]);
   const initialClanKey = clanOptions.find((clan) => clan.clan_id && clan.clan_id === data.settings?.clan_id)?.key || "";
   const [settings, setSettings] = useState({
     community_name: data.settings?.community_name || data.guild?.name || "",
@@ -533,18 +802,16 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
 
   function selectClan(key: string) {
     const clan = clanOptions.find((item) => item.key === key);
-    if (!clan) {
-      setSettings({ ...settings, clan_key: "", clan_id: "", clan_name: "" });
-      return;
-    }
-
-    setSettings({
-      ...settings,
-      clan_key: key,
-      clan_id: clan.clan_id || "",
-      clan_name: clan.clan_name,
-      community_name: settings.community_name || clan.clan_name,
-      region: settings.region || clan.region || "",
+    setSettings((prev) => {
+      if (!clan) return { ...prev, clan_key: "", clan_id: "", clan_name: "" };
+      return {
+        ...prev,
+        clan_key: key,
+        clan_id: clan.clan_id || "",
+        clan_name: clan.clan_name,
+        community_name: prev.community_name || clan.clan_name,
+        region: prev.region || clan.region || "",
+      };
     });
   }
 
@@ -748,31 +1015,65 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
   }
 
   async function readScreenshot(file: File) {
-    setOcrStatus("Готовлю скрин: локальный OCR, затем ИИ-проверка если она включена на сервере.");
+    setOcrStatus("Готовлю скрин: детект колонок, затем OCR...");
     setStatus("OCR...");
 
     try {
       const { createWorker } = await import("tesseract.js");
       const worker = await createWorker("eng+rus");
-      const candidates = await buildOcrCandidates(file);
+      const image = await loadImageSource(file);
       let bestRows: CwResultRow[] = [];
       let bestLabel = "";
       let bestTextLength = 0;
 
       try {
-        for (const candidate of candidates) {
-          setOcrStatus(`OCR: ${candidate.label}...`);
-          const result = await worker.recognize(candidate.canvas);
-          const text = result.data.text || "";
-          const rows = parseOcrResultRows(text);
-          if (rows.length > bestRows.length || (rows.length === bestRows.length && text.length > bestTextLength)) {
-            bestRows = rows;
-            bestLabel = candidate.label;
-            bestTextLength = text.length;
+        const crops = [
+          { label: "таблица справа", x: 0.28, y: 0.04, width: 0.70, height: 0.70 },
+          { label: "таблица широко", x: 0.22, y: 0.00, width: 0.78, height: 0.78 },
+          { label: "полный скрин", x: 0.00, y: 0.00, width: 1.00, height: 1.00 },
+        ];
+
+        for (const crop of crops) {
+          // Step 1: Try column-based parsing (primary)
+          const colRows = await ocrTableByColumns(
+            image.source,
+            image.width,
+            image.height,
+            crop,
+            worker,
+            crop.label,
+            (msg) => setOcrStatus(msg),
+          );
+
+          if (colRows && colRows.length > 0) {
+            const textLen = colRows.reduce((s, r) => s + r.character_name.length + 20, 0);
+            if (colRows.length > bestRows.length || (colRows.length === bestRows.length && textLen > bestTextLength)) {
+              bestRows = colRows;
+              bestLabel = `${crop.label}:колонки`;
+              bestTextLength = textLen;
+            }
+            if (colRows.length >= 8) break;
           }
-          if (rows.length >= 8) break;
+
+          // Step 2: Fall back to line-by-line OCR + parsing
+          for (const mode of ["contrast", "threshold"] as const) {
+            setOcrStatus(`${crop.label} · ${mode}: OCR...`);
+            const canvas = buildOcrCanvas(image.source, image.width, image.height, crop, mode);
+            const result = await worker.recognize(canvas);
+            const text = result.data.text || "";
+            const rows = parseOcrResultRowsFallback(text);
+            if (rows.length > bestRows.length || (rows.length === bestRows.length && text.length > bestTextLength)) {
+              bestRows = rows;
+              bestLabel = `${crop.label} · ${mode}`;
+              bestTextLength = text.length;
+            }
+            if (rows.length >= 8) break;
+            canvas.remove();
+          }
+          if (bestRows.length >= 8) break;
         }
       } finally {
+        image.close?.();
         await worker.terminate();
       }
 
@@ -803,7 +1104,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
       }
       setOcrStatus(
         bestRows.length
-          ? `Распознано строк: ${bestRows.length}. Лучший вариант: ${bestLabel}. Проверь строки ниже и нажми “Загрузить табы”.`
+          ? `Распознано строк: ${bestRows.length}. Лучший вариант: ${bestLabel}. Проверь строки ниже и нажми "Загрузить табы".`
           : `OCR не нашёл строки статистики. Лучший вариант: ${bestLabel || "нет"} (${bestTextLength} символов). Попробуй скрин без затемнения/движения или вставь строки вручную.`,
       );
       setStatus(bestRows.length ? "OCR готов." : "OCR без строк.");
@@ -928,13 +1229,13 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
 
             {clanOptions.length === 0 ? (
               <div className="panel-note sc-panel-warning">
-                Сайт пока не видит кланы на твоих персонажах. Открой страницу STALCRAFT, нажми “Обновить персонажей” и выбери персонажа.
+                Сайт пока не видит кланы на твоих персонажах. Открой страницу STALCRAFT, нажми "Обновить персонажей" и выбери персонажа.
               </div>
             ) : null}
 
             <div className="panel-note">
               Авто-выбросы работают через официальный endpoint <code>https://eapi.stalcraft.net/{"{REGION}"}/emission</code>.
-              Для уведомлений выбери регион сервера и канал “Выбросы”.
+              Для уведомлений выбери регион сервера и канал "Выбросы".
             </div>
 
             <div className="section sc-inner-section">
@@ -1019,6 +1320,99 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
           </section>
         ) : null}
 
+        {activeSection === "tabs" ? (
+          <section className="dashboard-section panel sc-dashboard-section">
+            <div className="dashboard-head">
+              <div>
+                <span className="eyebrow sc-eyebrow">CW Tabs</span>
+                <h2>Скрины КВ и общая таблица</h2>
+              </div>
+              <span className="badge muted">{totalRows.length} player(s)</span>
+            </div>
+
+            <div className="panel-note">
+              Загрузи скрин таба КВ. Сайт распознает таблицу в браузере, покажет строки для проверки и сохранит в Supabase
+              только числовую статистику. Сам скрин не сохраняется.
+            </div>
+
+            <div className="sc-upload-zone">
+              <div>
+                <strong>Загрузить скрин</strong>
+                <span>{ocrStatus}</span>
+              </div>
+              <input
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  if (file) void readScreenshot(file);
+                  event.currentTarget.value = "";
+                }}
+                type="file"
+              />
+            </div>
+
+            {ocrPreviewRows.length > 0 && (
+              <div className="sc-table-card" style={{ marginTop: 20 }}>
+                <h3>Предпросмотр OCR ({ocrPreviewRows.length} строк)</h3>
+                <div className="cw-table-wrap">
+                  <table className="cw-result-table">
+                    <thead>
+                      <tr>
+                        <th>#</th><th>Игрок</th><th>Матчей</th><th>Убийства</th>
+                        <th>Смерти</th><th>Помощь</th><th>Казна</th><th>Счёт</th>
+                        <th>K/D</th><th>KDA</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ocrPreviewRows.map((row, index) => (
+                        <tr key={`${row.character_name}-${index}`}>
+                          <td>{index + 1}</td>
+                          <td><strong>{row.character_name}</strong></td>
+                          <td>{formatStat(row.matches_count || 1)}</td>
+                          <td>{formatStat(row.kills)}</td>
+                          <td>{formatStat(row.deaths)}</td>
+                          <td>{formatStat(row.assists)}</td>
+                          <td>{formatStat(row.treasury_spent)}</td>
+                          <td>{formatStat(row.score)}</td>
+                          <td className={kdClass(calcKd(row as TableRow))}>{formatKd(row)}</td>
+                          <td className={kdaClass(calcKda(row as TableRow))}>{formatKda(row)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="panel-note" style={{ marginTop: 20 }}>
+              Если OCR ошибся, поправь строки вручную. Формат строки: <code>ник;У;С;П;казна;счёт</code> или <code>ник;матчей;У;С;П;казна;счёт</code>.
+            </div>
+
+            <div className="field" style={{ marginTop: 12 }}>
+              <label>Распознанные или ручные строки</label>
+              <textarea value={resultText} onChange={(event) => setResultText(event.target.value)} placeholder="MihaiGray;4;12;4;64081;3831" />
+            </div>
+
+            <div className="sc-overview-actions">
+              <button className="primary-button sc-primary" onClick={uploadResults} type="button">Загрузить табы</button>
+              <button className="ghost-button sc-danger-button" disabled={resultRows.length === 0} onClick={clearResults} type="button">Очистить таблицу</button>
+            </div>
+
+            <div className="sc-table-card" style={{ marginTop: 24 }}>
+              <div className="dashboard-head">
+                <div>
+                  <span className="eyebrow sc-eyebrow">Total table</span>
+                  <h3>Общая таблица КВ</h3>
+                </div>
+              </div>
+              <CwTableImproved
+                rows={totalRows as TableRow[]}
+                emptyMessage="Табы пока не загружены. Загрузи скрин или вставь строки вручную."
+              />
+            </div>
+          </section>
+        ) : null}
+
         {activeSection === "squads" ? (
           <section className="dashboard-section panel sc-dashboard-section">
             <div className="dashboard-head">
@@ -1080,17 +1474,27 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
 
                     <div className="field">
                       <label>Добавить игрока клана</label>
-                      <select defaultValue="" onChange={(event) => {
-                        void assignSquadMember(squad.id, event.target.value);
-                        event.currentTarget.value = "";
-                      }}>
-                        <option value="">Выбери игрока</option>
+                      <input
+                        list={`squad-member-list-${squad.id}`}
+                        placeholder="Поиск по нику..."
+                        onChange={(event) => {
+                          const match = (data.clanMembers || []).find((m: any) =>
+                            (m.character_name || m.discord_user_id).toLowerCase().includes(event.target.value.toLowerCase())
+                          );
+                          if (match) {
+                            assignSquadMember(squad.id, match.discord_user_id);
+                            event.target.value = "";
+                          }
+                        }}
+                        type="search"
+                      />
+                      <datalist id={`squad-member-list-${squad.id}`}>
                         {(data.clanMembers || []).map((member: any) => (
-                          <option key={`${squad.id}-${member.discord_user_id}`} value={member.discord_user_id}>
+                          <option key={`${squad.id}-dl-${member.discord_user_id}`} value={member.character_name || member.discord_user_id}>
                             {member.character_name || member.discord_user_id}{member.rank ? ` · ${member.rank}` : ""}
                           </option>
                         ))}
-                      </select>
+                      </datalist>
                     </div>
 
                     <div className="sc-squad-member-list">
@@ -1109,135 +1513,6 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
               }) : (
                 <article className="panel-note">Отряды ещё не созданы. Создай первый отряд и добавь игроков из состава клана.</article>
               )}
-            </div>
-          </section>
-        ) : null}
-
-        {activeSection === "tabs" ? (
-          <section className="dashboard-section panel sc-dashboard-section">
-            <div className="dashboard-head">
-              <div>
-                <span className="eyebrow sc-eyebrow">CW Tabs</span>
-                <h2>Скрины КВ и общая таблица</h2>
-              </div>
-              <span className="badge muted">{resultRows.length} row(s)</span>
-            </div>
-            <div className="panel-note">
-              Загрузи скрин таба КВ. Сайт распознает таблицу в браузере, покажет строки для проверки и сохранит в Supabase
-              только числовую статистику. Сам скрин не сохраняется.
-            </div>
-            <div className="sc-upload-zone">
-              <div>
-                <strong>Загрузить скрин</strong>
-                <span>{ocrStatus}</span>
-              </div>
-              <input
-                accept="image/png,image/jpeg,image/webp"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  if (file) void readScreenshot(file);
-                  event.currentTarget.value = "";
-                }}
-                type="file"
-              />
-            </div>
-            {ocrPreviewRows.length > 0 ? (
-              <div className="sc-table-card">
-                <h3>Предпросмотр OCR</h3>
-                <div className="sc-result-table-wrap">
-                  <table className="sc-result-table">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Игрок</th>
-                        <th>Матчей</th>
-                        <th>Убийства</th>
-                        <th>Смерти</th>
-                        <th>Помощь</th>
-                        <th>Казна</th>
-                        <th>Счёт</th>
-                        <th>K/D</th>
-                        <th>KDA</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ocrPreviewRows.map((row, index) => (
-                        <tr key={`${row.character_name}-${index}`}>
-                          <td>{index + 1}</td>
-                          <td>{row.character_name}</td>
-                          <td>{formatStat(row.matches_count || 1)}</td>
-                          <td>{formatStat(row.kills)}</td>
-                          <td>{formatStat(row.deaths)}</td>
-                          <td>{formatStat(row.assists)}</td>
-                          <td>{formatStat(row.treasury_spent)}</td>
-                          <td>{formatStat(row.score)}</td>
-                          <td>{formatKd(row)}</td>
-                          <td>{formatKda(row)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-            <div className="panel-note">
-              Если OCR ошибся, поправь строки вручную. Формат строки: <code>ник;У;С;П;казна;счёт</code> или <code>ник;матчей;У;С;П;казна;счёт</code>.
-            </div>
-            <div className="field">
-              <label>Распознанные или ручные строки</label>
-              <textarea value={resultText} onChange={(event) => setResultText(event.target.value)} placeholder="MihaiGray;4;12;4;64081;3831" />
-            </div>
-            <div className="sc-overview-actions">
-              <button className="primary-button sc-primary" onClick={uploadResults} type="button">Загрузить табы</button>
-              <button className="ghost-button sc-danger-button" disabled={resultRows.length === 0} onClick={clearResults} type="button">Очистить таблицу</button>
-            </div>
-
-            <div className="sc-table-card">
-              <div className="dashboard-head">
-                <div>
-                  <span className="eyebrow sc-eyebrow">Total table</span>
-                  <h3>Общая таблица КВ</h3>
-                </div>
-                <span className="badge muted">{totalRows.length} player(s)</span>
-              </div>
-              <div className="sc-result-table-wrap">
-                <table className="sc-result-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Игрок</th>
-                      <th>Матчей</th>
-                      <th>Убийства</th>
-                      <th>Смерти</th>
-                      <th>Помощь</th>
-                      <th>Казна</th>
-                      <th>Счёт</th>
-                      <th>K/D</th>
-                      <th>KDA</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {totalRows.length > 0 ? totalRows.map((row, index) => (
-                      <tr key={row.character_name}>
-                        <td>{index + 1}</td>
-                        <td>{row.character_name}</td>
-                        <td>{formatStat(row.matches_count || row.tabs_count)}</td>
-                        <td>{formatStat(row.kills)}</td>
-                        <td>{formatStat(row.deaths)}</td>
-                        <td>{formatStat(row.assists)}</td>
-                        <td>{formatStat(row.treasury_spent)}</td>
-                        <td>{formatStat(row.score)}</td>
-                        <td>{formatKd(row)}</td>
-                        <td>{formatKda(row)}</td>
-                      </tr>
-                    )) : (
-                      <tr>
-                        <td colSpan={10}>Табы пока не загружены.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
             </div>
           </section>
         ) : null}
