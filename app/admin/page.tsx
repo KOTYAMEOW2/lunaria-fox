@@ -21,12 +21,10 @@ export default async function AdminPage() {
   let latestActions: any[] = [];
 
   if (supabase) {
-    const freshSince = new Date(Date.now() - 20 * 60 * 1000).toISOString();
     const guildResult = await supabase
       .from("sc_guilds")
       .select("guild_id, name, member_count, is_available, updated_at")
       .eq("is_available", true)
-      .gte("updated_at", freshSince)
       .order("name");
     guilds = guildResult.data || [];
 

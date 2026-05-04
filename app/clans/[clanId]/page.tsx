@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { getSession } from "@/lib/auth/session";
 import { getClanDashboardForUser } from "@/lib/stalcraft/sc-dashboard";
+import { CwTableImproved } from "@/components/stalcraft/sc-guild-dashboard-client";
 
 export const dynamic = "force-dynamic";
 
@@ -173,49 +174,25 @@ export default async function ClanDashboardPage({ params }: { params: Promise<{ 
               <span className="eyebrow sc-eyebrow">Last Published CW Table</span>
               <h2>Последние опубликованные итоги</h2>
             </div>
-            <span className="badge muted">{latestRows.length} row(s)</span>
+            {latestAudit ? (
+              <span className="badge muted">{latestRows.length} row(s) · {formatMsk(latestAudit.published_at || latestAudit.sent_at)}</span>
+            ) : (
+              <span className="badge muted">0 row(s)</span>
+            )}
           </div>
-          <div className="sc-result-table-wrap">
-            <table className="sc-result-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Игрок</th>
-                  <th>Матчей</th>
-                  <th>Убийства</th>
-                  <th>Смерти</th>
-                  <th>Помощь</th>
-                  <th>Казна</th>
-                  <th>Счёт</th>
-                  <th>K/D</th>
-                  <th>KDA</th>
-                </tr>
-              </thead>
-              <tbody>
-                {latestRows.length > 0 ? latestRows.map((row: any, index: number) => {
-                  const kills = Number(row.kills || 0);
-                  const deaths = Number(row.deaths || 0);
-                  const assists = Number(row.assists || 0);
-                  return (
-                    <tr key={`${row.character_name}-${index}`}>
-                      <td>{index + 1}</td>
-                      <td>{row.character_name || "Игрок"}</td>
-                      <td>{formatNumber(row.matches_count)}</td>
-                      <td>{formatNumber(kills)}</td>
-                      <td>{formatNumber(deaths)}</td>
-                      <td>{formatNumber(assists)}</td>
-                      <td>{formatNumber(row.treasury_spent)}</td>
-                      <td>{formatNumber(row.score)}</td>
-                      <td>{row.kd || ratioText(kills, deaths)}</td>
-                      <td>{row.kda || ratioText(kills + assists, deaths)}</td>
-                    </tr>
-                  );
-                }) : (
-                  <tr><td colSpan={10}>Итоги КВ ещё не публиковались через бота.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <CwTableImproved
+            rows={latestRows.map((row: any) => ({
+              character_name: String(row.character_name || "Игрок"),
+              matches_count: Number(row.matches_count || 0),
+              kills: Number(row.kills || 0),
+              deaths: Number(row.deaths || 0),
+              assists: Number(row.assists || 0),
+              treasury_spent: Number(row.treasury_spent || 0),
+              score: Number(row.score || 0),
+            }))}
+            emptyMessage="Итоги КВ ещё не публиковались через бота."
+            showPublishHint="После загрузки табов в штабном обзоре нажми &ldquo;Опубликовать&rdquo; — итоги появятся здесь."
+          />
         </section>
 
         <section className="panel sc-table-card">

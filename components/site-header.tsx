@@ -25,22 +25,15 @@ export function SiteHeader() {
 
   useEffect(() => {
     if (isExternalDashboard()) return;
-
-    let cancelled = false;
-
-    fetch("/api/auth/session", { cache: "no-store" })
+    const controller = new AbortController();
+    fetch("/api/auth/session", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) return { session: null };
         return (await response.json()) as { session: SessionPreview | null };
       })
-      .then((payload) => {
-        if (!cancelled) setSession(payload.session ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setSession(null);
-      });
-
-    return () => { cancelled = true; };
+      .then((payload) => setSession(payload.session ?? null))
+      .catch((err) => { if (err.name !== "AbortError") setSession(null); });
+    return () => controller.abort();
   }, []);
 
   return (

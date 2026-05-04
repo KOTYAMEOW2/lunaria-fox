@@ -36,6 +36,7 @@ export default async function ClanRatingPage() {
           <p>
             Таблица собирается по регионам RU, EU, NA и SEA. Основной показатель ранжирования — clan level points
             из официального STALCRAFT API; если API недоступен, сайт показывает локальную статистику из Supabase.
+            При успешной загрузке рейтинг также кэшируется в таблицу <code>sc_clans</code>.
           </p>
           <div className="sc-overview-actions">
             <Link className="primary-button sc-primary" href="/stalcraft">Привязать профиль</Link>
@@ -53,7 +54,7 @@ export default async function ClanRatingPage() {
           <article className="sc-overview-card">
             <span>Источник</span>
             <strong>{sourceLabel}</strong>
-            <p>обновлено {formatMsk(rating.updatedAt)} МСК</p>
+            <p>обновлено {formatMsk(rating.updatedAt)} МСК · кэш пишется в `sc_clans`</p>
           </article>
           <article className="sc-overview-card">
             <span>Кланов в таблице</span>
@@ -92,12 +93,15 @@ export default async function ClanRatingPage() {
                   <th>Участники</th>
                   <th>Лидер</th>
                   <th>Счёт рейтинга</th>
+                  <th>Обновлено</th>
                 </tr>
               </thead>
               <tbody>
                 {tableRows.length > 0 ? tableRows.map((row) => (
-                  <tr key={`${row.region}-${row.clanId}`}>
-                    <td>{row.rank}</td>
+                  <tr className={row.rank <= 3 ? `sc-rating-top-${row.rank}` : ""} key={`${row.region}-${row.clanId}`}>
+                    <td>
+                      <span className="sc-rating-rank-pill">#{row.rank}</span>
+                    </td>
                     <td>
                       <strong>{row.tag ? `[${row.tag}] ` : ""}{row.name}</strong>
                       <small>{row.externalClanId || row.clanId}</small>
@@ -108,10 +112,11 @@ export default async function ClanRatingPage() {
                     <td>{formatNumber(row.memberCount)}</td>
                     <td>{row.leader || "—"}</td>
                     <td>{formatNumber(row.score)}</td>
+                    <td>{formatMsk(row.updatedAt || rating.updatedAt)}</td>
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={8}>Данных рейтинга пока нет. Проверь `STALCRAFT_APPLICATION_TOKEN` в Vercel.</td>
+                    <td colSpan={9}>Данных рейтинга пока нет. Проверь `STALCRAFT_APPLICATION_TOKEN` в Vercel.</td>
                   </tr>
                 )}
               </tbody>

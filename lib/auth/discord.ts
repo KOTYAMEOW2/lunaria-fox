@@ -3,6 +3,10 @@ import type { DiscordGuild } from "@/lib/types";
 const DISCORD_API_BASE = "https://discord.com/api/v10";
 const ADMINISTRATOR = BigInt(8);
 const MANAGE_GUILD = BigInt(32);
+const GUILD_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+// TTL cache: key = accessToken, value = { guilds, expiresAt }
+const guildCache = new Map<string, { guilds: DiscordGuild[]; expiresAt: number }>();
 
 type DiscordUserResponse = {
   id: string;
@@ -40,6 +44,9 @@ export async function fetchDiscordUser(accessToken: string) {
 }
 
 export async function fetchDiscordGuilds(accessToken: string) {
+  const cached = guildCache.get(accessToken);
+  if (cached && cached.expiresAt > Date.now()) return cached.guilds;
+
   const response = await fetch(`${DISCORD_API_BASE}/users/@me/guilds`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -51,7 +58,9 @@ export async function fetchDiscordGuilds(accessToken: string) {
     throw new Error("Unable to fetch Discord guilds.");
   }
 
-  return (await response.json()) as DiscordGuild[];
+  const guilds = (await response.json()) as DiscordGuild[];
+  guildCache.set(accessToken, { guilds, expiresAt: Date.now() + GUILD_CACHE_TTL_MS });
+  return guilds;
 }
 
 export function canManageGuild(guild: DiscordGuild) {

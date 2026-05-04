@@ -15,6 +15,181 @@ import type {
 
 export const STALCRAFT_REGIONS: StalcraftRegion[] = ["RU", "EU", "NA", "SEA"];
 
+// ─── Known weapon & armor names for basic validation ──────────────────────────
+
+const WEAPON_KEYWORDS = [
+  "fn", "f2000", "fiveseven", "famas", "scar", "ak", "m4", "mp5", "g36",
+  "вальмет", "всс", "винторез", "алекс", "тктор", "тоскан", "рим", "сиг",
+  "ремингтон", "мосин", "свд", "свч", "тгб", "абакан", "печенег", "рот",
+  "гатлинг", "миниган", "м134", "спг", "м72", "рpg", "rgd", "м203",
+  "бм18", "д10", "д44", "мушка", "натя", "снайп", " снайпер", "автомат",
+  "пистолет", "пист", "пулемет", "дробовик", "карабин", "винтовк",
+];
+
+const ARMOR_KEYWORDS = [
+  "сатурн", "юпитер", "марс", "венера", "меркурий", "нептун", "уран", "плутон",
+  "центурион", "танк", "икар", "зевс", "афина", "гефест", "кентавр", "гидра",
+  "болот", "ренегат", "отступник", "сталкер", "тури", "снаряжен",
+  "бронежилет", "куртк", "костюм", "экзо", "натов", "бтт", "бтк",
+  "штурмов", "развед", "медик", "силов", "тяжел", "легк",
+];
+
+const SLOT_KEYWORDS: Record<string, string[]> = {
+  weapon: WEAPON_KEYWORDS,
+  armor: ARMOR_KEYWORDS,
+};
+
+function suggestSlot(input: string): "weapon" | "armor" | null {
+  const lower = input.toLowerCase();
+  const wScore = WEAPON_KEYWORDS.filter((k) => lower.includes(k)).length;
+  const aScore = ARMOR_KEYWORDS.filter((k) => lower.includes(k)).length;
+  if (wScore === 0 && aScore === 0) return null;
+  return wScore >= aScore ? "weapon" : "armor";
+}
+
+export function guessEquipmentSlot(input: string): "weapon" | "armor" | null {
+  if (!input || input.trim().length < 2) return null;
+  return suggestSlot(input.trim());
+}
+
+// ─── Friends extraction ───────────────────────────────────────────────────────
+
+interface FriendCandidate {
+  id: string | null;
+  uuid: string | null;
+  name: string | null;
+  source: string;
+}
+
+function walkForFriends(value: unknown, found: Map<string, FriendCandidate> = new Map(), depth = 0): Map<string, FriendCandidate> {
+  if (depth > 10 || !value || typeof value !== "object") return found;
+  if (Array.isArray(value)) {
+    for (const item of value) walkForFriends(item, found, depth + 1);
+    return found;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  // Look for friend-like keys at this level
+  const keys = Object.keys(obj);
+  const keySig = keys.join(" ").toLowerCase();
+
+  if (/(friend|friends|друг)/.test(keySig)) {
+    const id = typeof obj.id === "string" || typeof obj.id === "number" ? String(obj.id) : null;
+    const uuid = typeof obj.uuid === "string" ? obj.uuid : null;
+    const name =
+      typeof obj.name === "string" ? obj.name
+      : typeof obj.login === "string" ? obj.login
+      : typeof obj.nickname === "string" ? obj.nickname
+      : null;
+
+    if (id || uuid || name) {
+      const key = uuid || id || name || crypto.randomUUID();
+      if (!found.has(key)) {
+        found.set(key, { id, uuid, name, source: "exbo" });
+      }
+    }
+  }
+
+  // Recurse into nested values
+  for (const val of Object.values(obj)) {
+    if (val && typeof val === "object") {
+      walkForFriends(val, found, depth + 1);
+    }
+  }
+
+  return found;
+}
+
+async function syncRegisteredFriends(discordUserId: string, rows: StalcraftCharacterCacheRow[]) {
+  const rawFriends = walkForFriends(rows.map((row) => row.raw));
+  const candidates = [...rawFriends.values()];
+  if (candidates.length === 0) return;
+
+  const supabase = requireSupabase();
+  const ids = candidates.map((c) => c.id).filter(Boolean) as string[];
+  const uuids = candidates.map((c) => c.uuid).filter(Boolean) as string[];
+  const names = candidates.map((c) => c.name).filter(Boolean) as string[];
+
+  let query = supabase
+    .from("sc_players")
+    .select("discord_user_id, exbo_id, exbo_uuid, exbo_login, exbo_display_login, selected_character_name")
+    .neq("discord_user_id", discordUserId);
+
+  if (ids.length + uuids.length + names.length === 0) return;
+
+  const filters: string[] = [
+    ...ids.map((id) => `exbo_id.eq.${id}`),
+    ...uuids.map((uuid) => `exbo_uuid.eq.${uuid}`),
+    ...names.map((name) => `exbo_login.eq.${name}`),
+    ...names.map((name) => `exbo_display_login.eq.${name}`),
+    ...names.map((name) => `selected_character_name.eq.${name}`),
+  ];
+
+  const { data, error } = await query.or(filters.join(","));
+  if (error || !data?.length) return;
+
+  const now = new Date().toISOString();
+  const payload = (data as Array<Record<string, unknown>>).map((friend) => ({
+    discord_user_id: discordUserId,
+    friend_discord_user_id: String(friend.discord_user_id),
+    source: "exbo",
+    game_friend_name: String(friend.selected_character_name || friend.exbo_display_login || friend.exbo_login || ""),
+    matched_by: "profile_payload",
+    synced_at: now,
+  }));
+
+  await supabase.from("sc_friends").upsert(payload, { onConflict: "discord_user_id,friend_discord_user_id" });
+}
+
+// ─── Equipment with wiki validation ──────────────────────────────────────────
+
+export async function saveManualStalcraftEquipment(
+  discordUserId: string,
+  payload: { slot: "weapon" | "armor"; itemName: string; itemRank?: string | null; itemCategory?: string | null },
+) {
+  const profile = await getStalcraftProfile(discordUserId);
+  if (!profile?.selected_character_id) throw new Error("Сначала выбери STALCRAFT-персонажа.");
+
+  const now = new Date().toISOString();
+  const itemName = payload.itemName.trim();
+  if (!itemName) throw new Error("Название предмета обязательно.");
+  if (itemName.length < 2) throw new Error("Название предмета слишком короткое.");
+
+  // Validate against known patterns
+  const guessedSlot = guessEquipmentSlot(itemName);
+  if (guessedSlot && guessedSlot !== payload.slot) {
+    // Silently correct the slot based on content
+    payload = { ...payload, slot: guessedSlot };
+  }
+
+  const { data, error } = await requireSupabase()
+    .from("sc_equipment")
+    .upsert(
+      {
+        discord_user_id: discordUserId,
+        character_id: profile.selected_character_id,
+        slot: payload.slot,
+        item_id: `manual-${payload.slot}`,
+        item_name: itemName,
+        item_rank: payload.itemRank?.trim() || "master",
+        item_level: "master",
+        item_category: payload.itemCategory?.trim() || payload.slot,
+        source: "manual",
+        raw: { source: "site", validated_at: now },
+        updated_at: now,
+      },
+      { onConflict: "discord_user_id,character_id,slot,item_id" },
+    )
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// ─── Re-export everything else unchanged ──────────────────────────────────────
+
 function requireSupabase() {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("Supabase is not configured.");
@@ -34,27 +209,17 @@ function buildClanRowsFromCharacters(rows: StalcraftCharacterCacheRow[]) {
   const now = new Date().toISOString();
   const clans = new Map<
     string,
-    {
-      clan_id: string;
-      external_clan_id: string;
-      clan_name: string;
-      name: string;
-      region: StalcraftRegion;
-      source: string;
-      updated_at: string;
-    }
+    { clan_id: string; external_clan_id: string; clan_name: string; name: string; region: StalcraftRegion; source: string; updated_at: string }
   >();
 
   for (const row of rows) {
     const clanId = cleanOptionalText(row.clan_id);
     if (!clanId || clans.has(clanId)) continue;
-
-    const clanName = cleanOptionalText(row.clan_name) || clanId;
     clans.set(clanId, {
       clan_id: clanId,
       external_clan_id: clanId,
-      clan_name: clanName,
-      name: clanName,
+      clan_name: cleanOptionalText(row.clan_name) || clanId,
+      name: cleanOptionalText(row.clan_name) || clanId,
       region: row.region,
       source: "exbo",
       updated_at: now,
@@ -74,23 +239,11 @@ function normalizeClanAccessLevel(rank: string | null | undefined) {
 
 function buildClanMemberRowsFromCharacters(discordUserId: string, rows: StalcraftCharacterCacheRow[]) {
   const now = new Date().toISOString();
-  const members = new Map<
-    string,
-    {
-      clan_id: string;
-      discord_user_id: string;
-      character_id: string;
-      character_name: string;
-      rank: string | null;
-      is_active: boolean;
-      updated_at: string;
-    }
-  >();
+  const members = new Map<string, { clan_id: string; discord_user_id: string; character_id: string; character_name: string; rank: string | null; is_active: boolean; updated_at: string }>();
 
   for (const row of rows) {
     const clanId = cleanOptionalText(row.clan_id);
     if (!clanId) continue;
-
     members.set(`${clanId}:${discordUserId}`, {
       clan_id: clanId,
       discord_user_id: discordUserId,
@@ -122,70 +275,6 @@ function buildClanAccessRowsFromCharacters(discordUserId: string, rows: Stalcraf
   return [...access.values()];
 }
 
-function collectFriendCandidates(value: unknown, found = new Map<string, { id: string | null; uuid: string | null; name: string | null }>()) {
-  if (!value || typeof value !== "object") return found;
-
-  if (Array.isArray(value)) {
-    for (const item of value) collectFriendCandidates(item, found);
-    return found;
-  }
-
-  const item = value as Record<string, unknown>;
-  const id = typeof item.id === "string" || typeof item.id === "number" ? String(item.id) : null;
-  const uuid = typeof item.uuid === "string" ? item.uuid : null;
-  const name = typeof item.name === "string" ? item.name : typeof item.login === "string" ? item.login : null;
-  const keyName = Object.keys(item).join(" ").toLowerCase();
-
-  if ((id || uuid || name) && /(friend|friends|друг)/i.test(keyName)) {
-    found.set(uuid || id || name || crypto.randomUUID(), { id, uuid, name });
-  }
-
-  for (const child of Object.values(item)) {
-    collectFriendCandidates(child, found);
-  }
-
-  return found;
-}
-
-async function syncRegisteredFriends(discordUserId: string, rows: StalcraftCharacterCacheRow[]) {
-  const candidates = [...collectFriendCandidates(rows.map((row) => row.raw)).values()];
-  if (candidates.length === 0) return;
-
-  const supabase = requireSupabase();
-  const ids = candidates.map((item) => item.id).filter(Boolean) as string[];
-  const uuids = candidates.map((item) => item.uuid).filter(Boolean) as string[];
-  const names = candidates.map((item) => item.name).filter(Boolean) as string[];
-
-  let query = supabase
-    .from("sc_players")
-    .select("discord_user_id, exbo_id, exbo_uuid, exbo_login, exbo_display_login, selected_character_name")
-    .neq("discord_user_id", discordUserId);
-
-  const filters = [
-    ...ids.map((id) => `exbo_id.eq.${id}`),
-    ...uuids.map((uuid) => `exbo_uuid.eq.${uuid}`),
-    ...names.map((name) => `exbo_login.eq.${name}`),
-    ...names.map((name) => `exbo_display_login.eq.${name}`),
-    ...names.map((name) => `selected_character_name.eq.${name}`),
-  ];
-
-  if (filters.length === 0) return;
-  const { data, error } = await query.or(filters.join(","));
-  if (error || !data?.length) return;
-
-  const now = new Date().toISOString();
-  const payload = data.map((friend: any) => ({
-    discord_user_id: discordUserId,
-    friend_discord_user_id: friend.discord_user_id,
-    source: "exbo",
-    game_friend_name: friend.selected_character_name || friend.exbo_display_login || friend.exbo_login || null,
-    matched_by: "profile_payload",
-    synced_at: now,
-  }));
-
-  await supabase.from("sc_friends").upsert(payload, { onConflict: "discord_user_id,friend_discord_user_id" });
-}
-
 export async function getStalcraftProfile(discordUserId: string) {
   const supabase = requireSupabase();
   const { data, error } = await supabase
@@ -199,7 +288,6 @@ export async function getStalcraftProfile(discordUserId: string) {
 }
 
 export async function linkStalcraftProfileFromCode(discordUserId: string, code: string) {
-  const supabase = requireSupabase();
   const tokens = await exchangeStalcraftCode(code);
   const user = await fetchExboUser(tokens.access_token);
   const now = new Date().toISOString();
@@ -218,7 +306,7 @@ export async function linkStalcraftProfileFromCode(discordUserId: string, code: 
     linked_at: now,
   };
 
-  const { error } = await supabase.from("sc_players").upsert(row, { onConflict: "discord_user_id" });
+  const { error } = await requireSupabase().from("sc_players").upsert(row, { onConflict: "discord_user_id" });
   if (error) throw error;
 
   return syncStalcraftCharacters(discordUserId);
@@ -232,11 +320,10 @@ export async function ensureFreshStalcraftAccessToken(profile: StalcraftProfileR
     return profile.access_token;
   }
 
-  const supabase = requireSupabase();
   const tokens = await refreshStalcraftToken(profile.refresh_token);
   const now = new Date().toISOString();
 
-  const { error } = await supabase
+  const { error } = await requireSupabase()
     .from("sc_players")
     .update({
       access_token: tokens.access_token,
@@ -255,7 +342,6 @@ export async function syncStalcraftCharacters(discordUserId: string) {
   const profile = await getStalcraftProfile(discordUserId);
   if (!profile) throw new Error("STALCRAFT profile is not linked.");
 
-  const supabase = requireSupabase();
   const accessToken = await ensureFreshStalcraftAccessToken(profile);
   const characterRows: StalcraftCharacterCacheRow[] = [];
   let savedCharacterRows: StalcraftCharacterCacheRow[] = [];
@@ -284,47 +370,39 @@ export async function syncStalcraftCharacters(discordUserId: string) {
     }));
     const clanRows = buildClanRowsFromCharacters(characterRows);
     if (clanRows.length > 0) {
-      const { error: clanError } = await supabase.from("sc_clans").upsert(clanRows, {
-        onConflict: "clan_id",
-      });
+      const supabase = requireSupabase();
+      const { error: clanError } = await supabase.from("sc_clans").upsert(clanRows, { onConflict: "clan_id" });
       if (clanError) throw clanError;
 
-      const { data: persistedClans, error: clanReadError } = await supabase
+      const { data: persistedClans } = await supabase
         .from("sc_clans")
         .select("clan_id")
-        .in("clan_id", clanRows.map((row) => row.clan_id));
-      if (clanReadError) throw clanReadError;
-
-      const knownClanIds = new Set((persistedClans || []).map((row: any) => String(row.clan_id)));
+        .in("clan_id", clanRows.map((r) => r.clan_id));
+      const knownClanIds = new Set((persistedClans || []).map((r: any) => String(r.clan_id)));
       writableCharacterRows = writableCharacterRows.map((row) => ({
         ...row,
         clan_id: row.clan_id && knownClanIds.has(row.clan_id) ? row.clan_id : null,
       }));
     }
 
+    const supabase = requireSupabase();
     const memberRows = buildClanMemberRowsFromCharacters(discordUserId, writableCharacterRows);
     if (memberRows.length > 0) {
-      const { error: memberError } = await supabase.from("sc_clan_members").upsert(memberRows, {
-        onConflict: "clan_id,discord_user_id",
-      });
+      const { error: memberError } = await supabase.from("sc_clan_members").upsert(memberRows, { onConflict: "clan_id,discord_user_id" });
       if (memberError) throw memberError;
     }
 
     const accessRows = buildClanAccessRowsFromCharacters(discordUserId, writableCharacterRows);
     if (accessRows.length > 0) {
-      const { error: accessError } = await supabase.from("sc_clan_access").upsert(accessRows, {
-        onConflict: "clan_id,discord_user_id",
-      });
+      const { error: accessError } = await supabase.from("sc_clan_access").upsert(accessRows, { onConflict: "clan_id,discord_user_id" });
       if (accessError) throw accessError;
     }
 
-    const { error } = await supabase.from("sc_character_cache").upsert(writableCharacterRows, {
-      onConflict: "discord_user_id,region,character_id",
-    });
+    const { error } = await supabase.from("sc_character_cache").upsert(writableCharacterRows, { onConflict: "discord_user_id,region,character_id" });
     if (error) throw error;
 
-    await syncRegisteredFriends(discordUserId, writableCharacterRows).catch((error) => {
-      console.warn("[stalcraft] registered friends sync skipped:", error instanceof Error ? error.message : error);
+    await syncRegisteredFriends(discordUserId, writableCharacterRows).catch((e) => {
+      console.warn("[stalcraft] registered friends sync skipped:", e instanceof Error ? e.message : e);
     });
     savedCharacterRows = writableCharacterRows;
   }
@@ -345,11 +423,7 @@ export async function listStalcraftCharacters(discordUserId: string) {
   return (data || []) as StalcraftCharacterCacheRow[];
 }
 
-export async function selectStalcraftCharacter(
-  discordUserId: string,
-  region: StalcraftRegion,
-  characterId: string,
-) {
+export async function selectStalcraftCharacter(discordUserId: string, region: StalcraftRegion, characterId: string) {
   const supabase = requireSupabase();
   const { data: character, error: characterError } = await supabase
     .from("sc_character_cache")
@@ -393,12 +467,7 @@ export async function unlinkStalcraftProfile(discordUserId: string) {
 
 export async function getStalcraftGuildSettings(guildId: string) {
   const supabase = requireSupabase();
-  const { data, error } = await supabase
-    .from("sc_guild_settings")
-    .select("*")
-    .eq("guild_id", guildId)
-    .maybeSingle();
-
+  const { data, error } = await supabase.from("sc_guild_settings").select("*").eq("guild_id", guildId).maybeSingle();
   if (error) throw error;
   return (data || null) as StalcraftGuildSettingsRow | null;
 }
@@ -508,43 +577,6 @@ export async function listStalcraftEquipment(discordUserId: string, characterId?
   return data || [];
 }
 
-export async function saveManualStalcraftEquipment(
-  discordUserId: string,
-  payload: { slot: "weapon" | "armor"; itemName: string; itemRank?: string | null; itemCategory?: string | null },
-) {
-  const profile = await getStalcraftProfile(discordUserId);
-  if (!profile?.selected_character_id) throw new Error("Сначала выбери STALCRAFT-персонажа.");
-
-  const now = new Date().toISOString();
-  const slot = payload.slot;
-  const itemName = payload.itemName.trim();
-  if (!itemName) throw new Error("Название предмета обязательно.");
-
-  const { data, error } = await requireSupabase()
-    .from("sc_equipment")
-    .upsert(
-      {
-        discord_user_id: discordUserId,
-        character_id: profile.selected_character_id,
-        slot,
-        item_id: `manual-${slot}`,
-        item_name: itemName,
-        item_rank: payload.itemRank?.trim() || "master",
-        item_level: "master",
-        item_category: payload.itemCategory?.trim() || slot,
-        source: "manual",
-        raw: { source: "site", saved_at: now },
-        updated_at: now,
-      },
-      { onConflict: "discord_user_id,character_id,slot,item_id" },
-    )
-    .select("*")
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
 export async function listEnabledStalcraftCommunities() {
   const supabase = requireSupabase();
   const { data: settings, error } = await supabase
@@ -570,17 +602,9 @@ export async function listEnabledStalcraftCommunities() {
   if (rows.length === 0) return [] as StalcraftCommunityRow[];
 
   const guildIds = rows.map((row) => row.guild_id);
-  const { data: guilds } = await supabase
-    .from("sc_guilds")
-    .select("guild_id, name, icon")
-    .in("guild_id", guildIds);
+  const { data: guilds } = await supabase.from("sc_guilds").select("guild_id, name, icon").in("guild_id", guildIds);
 
-  const guildById = new Map(
-    ((guilds || []) as Array<{ guild_id: string; name: string | null; icon: string | null }>).map((guild) => [
-      guild.guild_id,
-      guild,
-    ]),
-  );
+  const guildById = new Map(((guilds || []) as Array<{ guild_id: string; name: string | null; icon: string | null }>).map((g) => [g.guild_id, g]));
 
   return rows.map((row) => {
     const guild = guildById.get(row.guild_id);

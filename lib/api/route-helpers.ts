@@ -18,17 +18,20 @@ export async function requireOwnerRequest(): Promise<DiscordSession> {
   return session as DiscordSession;
 }
 
+const DB_KEYWORDS = /\b(PGRST|sc_|constraint|violates|duplicate|UNIQUE|PK|FK|supabase|postgres|relation|column|table)\b/gi;
+
 export function routeError(error: unknown, fallbackStatus = 400) {
   if (error instanceof Error) {
     if (error.message === "Unauthorized") {
-      return NextResponse.json({ error: error.message }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     if (error.message === "Forbidden" || error.message === "Premium required") {
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
 
-    return NextResponse.json({ error: error.message }, { status: fallbackStatus });
+    const clean = error.message.replace(DB_KEYWORDS, "[DB]");
+    return NextResponse.json({ error: clean || "Request failed" }, { status: fallbackStatus });
   }
 
   return NextResponse.json({ error: "Unknown error." }, { status: fallbackStatus });

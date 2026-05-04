@@ -1,6 +1,8 @@
 import { ImageResponse } from "next/og";
 
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { getSession } from "@/lib/auth/session";
+import { assertGuildAccess } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,15 @@ async function readSquadData(guildId: string) {
 
 export async function GET(_request: Request, { params }: { params: Promise<{ guildId: string }> }) {
   const { guildId } = await params;
+
+  const session = await getSession();
+  if (!session) return new Response("Unauthorized", { status: 401 });
+  try {
+    await assertGuildAccess(session, guildId);
+  } catch {
+    return new Response("Forbidden", { status: 403 });
+  }
+
   const { guild, settings, squads, members } = await readSquadData(guildId);
   const bySquad = new Map<string, any[]>();
   for (const member of members) {

@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth/session";
 import { listStalcraftCharacters } from "@/lib/stalcraft/data";
 import { getScGuildDashboardData } from "@/lib/stalcraft/sc-dashboard";
 import { ScGuildDashboardClient, type ScDashboardSection } from "@/components/stalcraft/sc-guild-dashboard-client";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const sectionCopy: Record<ScDashboardSection, { eyebrow: string; title: string; description: string }> = {
   overview: {
@@ -60,7 +61,9 @@ export async function GuildDashboardView({ guildId, section }: { guildId: string
           <p>{copy.description}</p>
         </div>
 
-        <ScGuildDashboardClient activeSection={section} guildId={guildId} data={data} />
+        <ErrorBoundary>
+          <ScGuildDashboardClient activeSection={section} guildId={guildId} data={data} />
+        </ErrorBoundary>
       </div>
     </section>
   );

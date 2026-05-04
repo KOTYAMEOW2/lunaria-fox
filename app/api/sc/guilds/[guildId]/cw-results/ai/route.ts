@@ -109,7 +109,7 @@ async function readOpenAiRows(imageDataUrl: string, ocrRows: z.infer<typeof rowS
   });
 
   const text = await response.text();
-  let payload: any = null;
+  let payload: unknown = null;
   try {
     payload = JSON.parse(text);
   } catch {
@@ -117,10 +117,11 @@ async function readOpenAiRows(imageDataUrl: string, ocrRows: z.infer<typeof rowS
   }
 
   if (!response.ok) {
-    throw new Error(payload?.error?.message || text || `OpenAI request failed: ${response.status}`);
+    const message = (payload as any)?.error?.message || `OpenAI request failed: ${response.status}`;
+    throw new Error(message);
   }
 
-  const content = payload?.choices?.[0]?.message?.content || "{}";
+  const content = (payload as { choices?: Array<{ message?: { content?: string } }> } | null)?.choices?.[0]?.message?.content || "{}";
   const parsed = typeof content === "string" ? JSON.parse(content) : content;
   return aiResponseSchema.parse(parsed);
 }

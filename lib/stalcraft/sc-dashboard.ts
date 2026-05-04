@@ -30,6 +30,7 @@ export type ScGuildDashboardData = {
   logs: any[];
   emission: any | null;
   schemaWarnings: string[];
+  userCharacters?: any[];
 };
 
 const BOT_GUILD_STALE_MS = 20 * 60 * 1000;

@@ -1,10 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { env, isSupabaseConfigured } from "@/lib/env";
 
-let cachedClient: any = null;
+let cachedClient: SupabaseClient | null = null;
 
-export function getSupabaseAdmin(): any {
+export function getSupabaseAdmin(): SupabaseClient | null {
   if (!isSupabaseConfigured()) return null;
 
   if (!cachedClient) {
@@ -13,7 +14,7 @@ export function getSupabaseAdmin(): any {
         persistSession: false,
         autoRefreshToken: false,
       },
-    }) as any;
+    });
   }
 
   return cachedClient;
