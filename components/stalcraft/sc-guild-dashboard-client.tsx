@@ -323,6 +323,21 @@ function parseStalcraftScoreboardLine(line: string): CwResultRow | null {
 // ─── Table column detector (hybrid) ──────────────────────────────────────────
 
 type TableBounds = { x: number; width: number }; // fractions of canvas width
+type OcrCanvasMode = "threshold" | "contrast" | "whiteText" | "whiteTextSoft";
+
+const STALCRAFT_FIXED_ROW_CROPS = [
+  { label: "stalcraft fixed tight", x: 0.335, y: 0.19, width: 0.605, height: 0.23 },
+  { label: "stalcraft fixed relaxed", x: 0.325, y: 0.18, width: 0.62, height: 0.245 },
+] as const;
+
+const STALCRAFT_FIXED_COLUMNS = [
+  { key: "name", x: 0.035, width: 0.47, kind: "name" },
+  { key: "kills", x: 0.505, width: 0.075, kind: "number" },
+  { key: "deaths", x: 0.585, width: 0.08, kind: "number" },
+  { key: "assists", x: 0.67, width: 0.075, kind: "number" },
+  { key: "treasury", x: 0.745, width: 0.115, kind: "number" },
+  { key: "score", x: 0.86, width: 0.085, kind: "number" },
+] as const;
 
 /**
  * Scans a canvas for vertical grid lines (column separators) in a STALCRAFT tab.
@@ -431,6 +446,102 @@ function cropColumn(
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(source, x, 0, width, sourceH, 0, 0, canvas.width, canvas.height);
   return canvas;
+}
+
+function sanitizeOcrColumnLines(lines: string[], kind: "name" | "number") {
+  if (kind === "number") {
+    return lines
+      .map((line) => normalizeOcrNumberToken(line))
+      .filter(Boolean);
+  }
+
+  return lines
+    .map((line) => line.replace(/[|¦]/g, " ").replace(/\s+/g, " ").trim())
+    .map((line) => line.replace(/^(?:#|№)?\s*[\dOoОоIlІ|]{1,2}\s+/, ""))
+    .filter((line) => line.length > 1 && !OCR_IGNORED_ROW.test(line));
+}
+
+async function recognizePreparedCanvas(
+  worker: Tesseract.Worker,
+  canvas: HTMLCanvasElement,
+  kind: "name" | "number",
+) {
+  await worker.setParameters({
+    preserve_interword_spaces: "1",
+    tessedit_char_whitelist: kind === "number"
+      ? "0123456789OoОоIlІ|ЗзБб"
+      : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя0123456789_-.[]# ",
+  });
+  const result = await worker.recognize(canvas);
+  return (result.data.text || "").trim();
+}
+
+async function ocrStalcraftFixedLayout(
+  imageSource: CanvasImageSource,
+  imageWidth: number,
+  imageHeight: number,
+  worker: Tesseract.Worker,
+  onStatus: (msg: string) => void,
+): Promise<{ rows: CwResultRow[]; label: string } | null> {
+  let bestRows: CwResultRow[] = [];
+  let bestLabel = "";
+
+  for (const crop of STALCRAFT_FIXED_ROW_CROPS) {
+    for (const mode of ["whiteText", "whiteTextSoft", "contrast"] as const) {
+      onStatus(`${crop.label} · ${mode}: OCR колонок...`);
+      const rowCanvas = buildOcrCanvas(imageSource, imageWidth, imageHeight, crop, mode);
+
+      try {
+        const columns: string[][] = [];
+        for (const spec of STALCRAFT_FIXED_COLUMNS) {
+          const pad = spec.kind === "name" ? 6 : 2;
+          const colCanvas = cropColumn(rowCanvas, rowCanvas.width, rowCanvas.height, { x: spec.x, width: spec.width }, pad, pad);
+          if (!colCanvas) {
+            columns.push([]);
+            continue;
+          }
+
+          try {
+            const text = await recognizePreparedCanvas(worker, colCanvas, spec.kind);
+            columns.push(sanitizeOcrColumnLines(text.split("\n"), spec.kind));
+          } finally {
+            colCanvas.remove();
+          }
+        }
+
+        const rowCount = Math.max(...columns.map((column) => column.length), 0);
+        if (rowCount < 5) continue;
+
+        const rows: CwResultRow[] = [];
+        for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+          const name = columns[0]?.[rowIndex] || "";
+          const parts = [
+            name,
+            columns[1]?.[rowIndex] || "",
+            columns[2]?.[rowIndex] || "",
+            columns[3]?.[rowIndex] || "",
+            columns[4]?.[rowIndex] || "",
+            columns[5]?.[rowIndex] || "",
+          ];
+          const row = parseColumnRow(parts);
+          if (row) rows.push(row);
+        }
+
+        const normalized = sanitizeRows(rows).rows;
+        if (normalized.length > bestRows.length) {
+          bestRows = normalized;
+          bestLabel = `${crop.label} · ${mode} · fixed columns`;
+        }
+        if (normalized.length >= 8) {
+          return { rows: normalized, label: `${crop.label} · ${mode} · fixed columns` };
+        }
+      } finally {
+        rowCanvas.remove();
+      }
+    }
+  }
+
+  return bestRows.length > 0 ? { rows: bestRows, label: bestLabel } : null;
 }
 
 // ─── Column-based result parser (primary when table detected) ────────────────
@@ -704,7 +815,7 @@ function buildOcrCanvas(
   sourceWidth: number,
   sourceHeight: number,
   crop: { x: number; y: number; width: number; height: number },
-  mode: "threshold" | "contrast",
+  mode: OcrCanvasMode,
 ) {
   const sx = Math.max(0, Math.floor(sourceWidth * crop.x));
   const sy = Math.max(0, Math.floor(sourceHeight * crop.y));
@@ -724,11 +835,24 @@ function buildOcrCanvas(
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
   for (let index = 0; index < data.length; index += 4) {
-    const gray = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+    const r = data[index];
+    const g = data[index + 1];
+    const b = data[index + 2];
+    const gray = r * 0.299 + g * 0.587 + b * 0.114;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const saturation = max - min;
     const contrasted = Math.max(0, Math.min(255, (gray - 118) * 2.7 + 128));
-    const value = mode === "threshold"
-      ? (contrasted > 150 ? 0 : 255)
-      : 255 - contrasted;
+    let value = 255 - contrasted;
+
+    if (mode === "threshold") {
+      value = contrasted > 150 ? 0 : 255;
+    } else if (mode === "whiteText") {
+      value = gray >= 176 && saturation <= 70 ? 0 : 255;
+    } else if (mode === "whiteTextSoft") {
+      value = gray >= 158 && saturation <= 92 ? 0 : 255;
+    }
+
     data[index] = value;
     data[index + 1] = value;
     data[index + 2] = value;
@@ -1123,6 +1247,21 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
       let aiNotes: string[] = [];
 
       try {
+        await worker.setParameters({ preserve_interword_spaces: "1" });
+
+        const fixedRows = await ocrStalcraftFixedLayout(
+          image.source,
+          image.width,
+          image.height,
+          worker,
+          (msg) => setOcrStatus(msg),
+        );
+        if (fixedRows?.rows?.length) {
+          bestRows = fixedRows.rows;
+          bestLabel = fixedRows.label;
+          bestTextLength = fixedRows.rows.reduce((sum, row) => sum + row.character_name.length + 20, 0);
+        }
+
         const crops = [
           { label: "таблица справа", x: 0.28, y: 0.04, width: 0.70, height: 0.70 },
           { label: "таблица широко", x: 0.22, y: 0.00, width: 0.78, height: 0.78 },
