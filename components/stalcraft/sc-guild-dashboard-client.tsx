@@ -127,6 +127,62 @@ function repairShiftedStalcraftRows(rows: CwResultRow[]) {
   };
 }
 
+function repairTreasuryScoreTail(rows: CwResultRow[]) {
+  if (rows.length < 4) return { rows, repaired: false };
+
+  const suspiciousRows = rows.filter((row) => row.treasury_spent >= 50_000 && row.score >= 0 && row.score < 100);
+  if (suspiciousRows.length < Math.max(3, Math.ceil(rows.length * 0.45))) {
+    return { rows, repaired: false };
+  }
+
+  const repairedRows = rows.map((row) => {
+    if (row.treasury_spent < 10_000 || row.score >= 100) return row;
+
+    const digits = String(Math.max(0, toInt(row.treasury_spent)));
+    let bestTreasury = row.treasury_spent;
+    let bestScore = row.score;
+    let bestPenalty = Number.POSITIVE_INFINITY;
+
+    for (const movedDigits of [2, 1, 3] as const) {
+      if (digits.length <= movedDigits + 1) continue;
+      const treasuryDigits = digits.slice(0, -movedDigits);
+      const scorePrefix = digits.slice(-movedDigits);
+      const scoreSuffix = String(Math.max(0, toInt(row.score))).padStart(2, "0");
+      const nextTreasury = Math.max(0, toInt(treasuryDigits));
+      const nextScore = Math.max(0, toInt(`${scorePrefix}${scoreSuffix}`));
+
+      if (nextTreasury <= 0 || nextScore <= 0) continue;
+
+      let penalty = 0;
+      if (nextTreasury > 99_999) penalty += 60;
+      if (nextScore > 9_999) penalty += 50;
+      if (nextScore < 100) penalty += 80;
+      if (nextTreasury < Math.max(row.kills, row.deaths)) penalty += 40;
+
+      const ratio = nextScore > 0 ? nextTreasury / nextScore : 99;
+      if (ratio > 25) penalty += 30;
+      if (ratio < 0.08) penalty += 30;
+
+      if (movedDigits !== 2) penalty += 6;
+
+      if (penalty < bestPenalty) {
+        bestPenalty = penalty;
+        bestTreasury = nextTreasury;
+        bestScore = nextScore;
+      }
+    }
+
+    if (bestPenalty === Number.POSITIVE_INFINITY) return row;
+    return {
+      ...row,
+      treasury_spent: bestTreasury,
+      score: bestScore,
+    };
+  });
+
+  return { rows: repairedRows, repaired: true };
+}
+
 function sanitizeRows(rows: CwResultRow[]) {
   const unique = new Map<string, CwResultRow>();
   let discarded = 0;
@@ -169,11 +225,13 @@ function sanitizeRows(rows: CwResultRow[]) {
   }
 
   const repairedRows = repairShiftedStalcraftRows([...unique.values()]);
-  const cleanRows = repairedRows.rows.sort((a, b) => b.score - a.score || b.kills - a.kills || a.character_name.localeCompare(b.character_name, "ru"));
+  const repairedTreasuryRows = repairTreasuryScoreTail(repairedRows.rows);
+  const cleanRows = repairedTreasuryRows.rows.sort((a, b) => b.score - a.score || b.kills - a.kills || a.character_name.localeCompare(b.character_name, "ru"));
   const notes: string[] = [];
   if (discarded > 0) notes.push(`Скрыто подозрительных или мусорных строк: ${discarded}.`);
   if (deduped > 0) notes.push("Повторяющиеся ники автоматически схлопнуты в лучший вариант строки.");
   if (repairedRows.repaired) notes.push("Обнаружен сдвиг колонок в STALCRAFT-таблице: убийства вынесены из имени, а счёт восстановлен из соседней колонки.");
+  if (repairedTreasuryRows.repaired) notes.push("Обнаружен склеенный хвост счёта в колонке казны: казна уменьшена, а счёт восстановлен из последних цифр.");
   return { rows: cleanRows, notes };
 }
 
