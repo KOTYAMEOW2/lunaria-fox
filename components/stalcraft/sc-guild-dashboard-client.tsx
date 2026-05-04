@@ -1,8 +1,10 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, startTransition } from "react";
+import { useRouter } from "next/navigation";
 
 import type { ScGuildDashboardData } from "@/lib/stalcraft/sc-dashboard";
+import { getBrowserSupabase } from "@/lib/supabase/browser";
 
 export type ScDashboardSection = "overview" | "settings" | "attendance" | "squads" | "tabs";
 
@@ -738,6 +740,8 @@ function buildOcrCanvas(
 }
 
 export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) {
+  const router = useRouter();
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [status, setStatus] = useState("");
   const [resultText, setResultText] = useState("");
   const [ocrStatus, setOcrStatus] = useState("Картинка не сохраняется: OCR работает в браузере.");
@@ -827,6 +831,63 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
     }
     return grouped;
   }, [squadMembers]);
+  const currentSessionId = data.currentSession?.id ? String(data.currentSession.id) : "";
+
+  useEffect(() => {
+    setResultRows(data.resultQueue || []);
+  }, [data.resultQueue]);
+
+  useEffect(() => {
+    setSquads(data.squads || []);
+  }, [data.squads]);
+
+  useEffect(() => {
+    setSquadMembers(data.squadMembers || []);
+  }, [data.squadMembers]);
+
+  useEffect(() => {
+    const supabase = getBrowserSupabase();
+    if (!supabase) return undefined;
+
+    const scheduleRefresh = () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        startTransition(() => {
+          router.refresh();
+        });
+      }, 250);
+    };
+
+    const channel = supabase
+      .channel(`sc-dashboard:${guildId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sc_guilds", filter: `guild_id=eq.${guildId}` }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sc_guild_settings", filter: `guild_id=eq.${guildId}` }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sc_discord_channels", filter: `guild_id=eq.${guildId}` }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sc_discord_roles", filter: `guild_id=eq.${guildId}` }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sc_roles", filter: `guild_id=eq.${guildId}` }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sc_cw_sessions", filter: `guild_id=eq.${guildId}` }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sc_cw_result_queue", filter: `guild_id=eq.${guildId}` }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sc_cw_squads", filter: `guild_id=eq.${guildId}` }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sc_emission_state", filter: `guild_id=eq.${guildId}` }, scheduleRefresh);
+
+    if (currentSessionId) {
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sc_cw_attendance", filter: `session_id=eq.${currentSessionId}` },
+        scheduleRefresh,
+      );
+    }
+
+    channel.subscribe();
+
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+      void supabase.removeChannel(channel);
+    };
+  }, [currentSessionId, guildId, router]);
 
   function selectClan(key: string) {
     const clan = clanOptions.find((item) => item.key === key);

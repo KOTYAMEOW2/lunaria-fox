@@ -504,6 +504,24 @@ begin
 end;
 $$;
 
+create or replace function public.touch_sc_cw_squad_parent()
+returns trigger
+language plpgsql
+as $$
+declare
+  target_squad_id uuid;
+begin
+  target_squad_id := coalesce(new.squad_id, old.squad_id);
+  if target_squad_id is not null then
+    update public.sc_cw_squads
+    set updated_at = now()
+    where id = target_squad_id;
+  end if;
+
+  return coalesce(new, old);
+end;
+$$;
+
 create trigger sc_guilds_touch before update on public.sc_guilds for each row execute function public.touch_updated_at();
 create trigger sc_game_balances_touch before update on public.sc_game_balances for each row execute function public.touch_updated_at();
 create trigger sc_clans_touch before update on public.sc_clans for each row execute function public.touch_updated_at();
@@ -517,6 +535,7 @@ create trigger sc_profile_showcases_touch before update on public.sc_profile_sho
 create trigger sc_cw_sessions_touch before update on public.sc_cw_sessions for each row execute function public.touch_updated_at();
 create trigger sc_cw_squads_touch before update on public.sc_cw_squads for each row execute function public.touch_updated_at();
 create trigger sc_cw_squad_members_touch before update on public.sc_cw_squad_members for each row execute function public.touch_updated_at();
+create trigger sc_cw_squad_members_touch_parent after insert or update or delete on public.sc_cw_squad_members for each row execute function public.touch_sc_cw_squad_parent();
 create trigger sc_cw_attendance_touch before update on public.sc_cw_attendance for each row execute function public.touch_updated_at();
 create trigger sc_emission_state_touch before update on public.sc_emission_state for each row execute function public.touch_updated_at();
 create trigger sc_admin_bot_actions_touch before update on public.sc_admin_bot_actions for each row execute function public.touch_updated_at();
@@ -1058,6 +1077,54 @@ begin
 
   begin
     alter publication supabase_realtime add table public.sc_guilds;
+  exception when duplicate_object then
+    null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.sc_discord_channels;
+  exception when duplicate_object then
+    null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.sc_discord_roles;
+  exception when duplicate_object then
+    null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.sc_emission_state;
+  exception when duplicate_object then
+    null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.sc_cw_sessions;
+  exception when duplicate_object then
+    null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.sc_cw_attendance;
+  exception when duplicate_object then
+    null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.sc_cw_result_queue;
+  exception when duplicate_object then
+    null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.sc_cw_squads;
+  exception when duplicate_object then
+    null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.sc_cw_squad_members;
   exception when duplicate_object then
     null;
   end;

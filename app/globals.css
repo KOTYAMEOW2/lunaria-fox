@@ -2760,8 +2760,8 @@ body {
   min-width: 160px;
 }
 
-.sc-rating-table th:nth-child(9),
-.sc-rating-table td:nth-child(9) {
+.sc-rating-table th:nth-child(8),
+.sc-rating-table td:nth-child(8) {
   min-width: 130px;
 }
 

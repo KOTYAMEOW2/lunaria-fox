@@ -69,7 +69,7 @@ export default async function ClanRatingPage() {
           <article className="sc-overview-card">
             <span>Лидер рейтинга</span>
             <strong>{topClan ? `${topClan.tag ? `[${topClan.tag}] ` : ""}${topClan.name}` : "—"}</strong>
-            <p>{topClan ? `${topClan.region} · ${formatNumber(topClan.score)} очков` : "данных пока нет"}</p>
+            <p>{topClan ? `${topClan.region} · уровень ${formatNumber(topClan.level)} · LP ${formatNumber(topClan.levelPoints)}` : "данных пока нет"}</p>
           </article>
         </section>
 
@@ -92,7 +92,6 @@ export default async function ClanRatingPage() {
                   <th>Очки уровня</th>
                   <th>Участники</th>
                   <th>Лидер</th>
-                  <th>Счёт рейтинга</th>
                   <th>Обновлено</th>
                 </tr>
               </thead>
@@ -111,12 +110,11 @@ export default async function ClanRatingPage() {
                     <td>{formatNumber(row.levelPoints)}</td>
                     <td>{formatNumber(row.memberCount)}</td>
                     <td>{row.leader || "—"}</td>
-                    <td>{formatNumber(row.score)}</td>
                     <td>{formatMsk(row.updatedAt || rating.updatedAt)}</td>
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={9}>Данных рейтинга пока нет. Проверь `STALCRAFT_APPLICATION_TOKEN` в Vercel.</td>
+                    <td colSpan={8}>Данных рейтинга пока нет. Проверь `STALCRAFT_APPLICATION_TOKEN` в Vercel.</td>
                   </tr>
                 )}
               </tbody>
