@@ -101,3 +101,18 @@ export type StalcraftCommunityRow = {
   verified_role_name: string | null;
   updated_at: string | null;
 };
+
+export type StalcraftProfileShowcaseRow = {
+  discord_user_id: string;
+  title: string | null;
+  bio: string | null;
+  accent_color: string;
+  banner_url: string | null;
+  avatar_frame: string | null;
+  card_style: string;
+  pinned_weapon: string | null;
+  pinned_armor: string | null;
+  badges: unknown[];
+  visibility: "public" | "clan" | "private";
+  updated_at: string | null;
+};

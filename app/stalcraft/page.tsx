@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
 import {
   getStalcraftProfile,
+  getStalcraftProfileShowcase,
   listEnabledStalcraftCommunities,
   listRegisteredStalcraftFriends,
   listStalcraftCharacters,
@@ -20,13 +21,14 @@ export default async function StalcraftPage({ searchParams }: { searchParams?: P
     getStalcraftProfile(session.userId).catch(() => null),
     listEnabledStalcraftCommunities().catch(() => []),
   ]);
-  const [characters, friends, equipment] = profile
+  const [characters, friends, equipment, showcase] = profile
     ? await Promise.all([
         listStalcraftCharacters(session.userId).catch(() => []),
         listRegisteredStalcraftFriends(session.userId).catch(() => []),
-        listStalcraftEquipment(session.userId, profile.selected_character_id).catch(() => []),
+        listStalcraftEquipment(session.userId).catch(() => []),
+        getStalcraftProfileShowcase(session.userId).catch(() => null),
       ])
-    : [[], [], []];
+    : [[], [], [], null];
 
   return (
     <section className="page-shell">
@@ -38,7 +40,7 @@ export default async function StalcraftPage({ searchParams }: { searchParams?: P
           {params.error ? <p className="page-alert">Ошибка: {params.error}</p> : null}
           {params.linked ? <p className="page-alert">EXBO-профиль привязан. Теперь выбери персонажа.</p> : null}
         </div>
-        <StalcraftProfileClient profile={profile} characters={characters} equipment={equipment} friends={friends} />
+        <StalcraftProfileClient profile={profile} characters={characters} equipment={equipment} friends={friends} showcase={showcase} />
 
         <div className="section">
           <div className="dashboard-head">

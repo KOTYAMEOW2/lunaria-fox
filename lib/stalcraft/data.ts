@@ -15,6 +15,7 @@ import type {
   StalcraftCommunityRow,
   StalcraftGuildSettingsRow,
   StalcraftProfileRow,
+  StalcraftProfileShowcaseRow,
   StalcraftRegion,
 } from "@/lib/stalcraft/types";
 
@@ -174,6 +175,33 @@ export async function saveManualStalcraftEquipment(
   const official = resolved.item;
   const supabase = requireSupabase();
 
+  const { data: ownedItems, error: ownedItemsError } = await supabase
+    .from("sc_equipment")
+    .select("id, slot, item_id, item_name, source, verified_at, raw")
+    .eq("discord_user_id", discordUserId)
+    .eq("character_id", profile.selected_character_id)
+    .eq("source", "api");
+  if (ownedItemsError) throw ownedItemsError;
+
+  const ownsOfficialItem = (ownedItems || []).some((row: any) => {
+    const raw = row.raw && typeof row.raw === "object" ? row.raw : {};
+    const officialId = cleanOptionalText((raw as Record<string, unknown>).official_item_id);
+    const officialPath = cleanOptionalText((raw as Record<string, unknown>).official_path);
+    return (
+      String(row.slot || "") === official.slot &&
+      (
+        String(row.item_id || "") === official.itemId ||
+        officialId === official.itemId ||
+        officialPath === official.itemPath ||
+        String(row.item_name || "") === official.itemName
+      )
+    );
+  });
+
+  if (!ownsOfficialItem) {
+    throw new Error("Этот предмет не найден у выбранного персонажа в API-снимке. Сначала обнови персонажей или выбери вещь из реально найденного снаряжения.");
+  }
+
   const { error: cleanupError } = await supabase
     .from("sc_equipment")
     .delete()
@@ -317,6 +345,109 @@ export async function getStalcraftProfile(discordUserId: string) {
 
   if (error) throw error;
   return (data || null) as StalcraftProfileRow | null;
+}
+
+export async function getStalcraftProfileShowcase(discordUserId: string) {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase
+    .from("sc_profile_showcases")
+    .select("*")
+    .eq("discord_user_id", discordUserId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  if (!data) {
+    return {
+      discord_user_id: discordUserId,
+      title: null,
+      bio: null,
+      accent_color: "#88ffc0",
+      banner_url: null,
+      avatar_frame: null,
+      card_style: "stalker",
+      pinned_weapon: null,
+      pinned_armor: null,
+      badges: [],
+      visibility: "clan",
+      updated_at: null,
+    } satisfies StalcraftProfileShowcaseRow;
+  }
+
+  return {
+    ...data,
+    badges: Array.isArray((data as any).badges) ? (data as any).badges : [],
+    visibility: ((data as any).visibility || "clan") as StalcraftProfileShowcaseRow["visibility"],
+  } as StalcraftProfileShowcaseRow;
+}
+
+export async function saveStalcraftProfileShowcase(
+  discordUserId: string,
+  payload: {
+    title: string | null;
+    bio: string | null;
+    visibility: "public" | "clan" | "private";
+    pinnedWeaponId: string | null;
+    pinnedArmorId: string | null;
+  },
+) {
+  const supabase = requireSupabase();
+  const now = new Date().toISOString();
+
+  const candidateIds = [payload.pinnedWeaponId, payload.pinnedArmorId].filter(Boolean) as string[];
+  const allowedEquipment = new Map<string, { id: string; slot: string; source: string | null; verified_at: string | null }>();
+
+  if (candidateIds.length > 0) {
+    const { data: equipmentRows, error: equipmentError } = await supabase
+      .from("sc_equipment")
+      .select("id, slot, source, verified_at")
+      .eq("discord_user_id", discordUserId)
+      .in("id", candidateIds);
+    if (equipmentError) throw equipmentError;
+
+    for (const row of (equipmentRows || []) as Array<{ id: string; slot: string; source: string | null; verified_at: string | null }>) {
+      if (row.source === "api" || row.verified_at) {
+        allowedEquipment.set(row.id, row);
+      }
+    }
+  }
+
+  if (payload.pinnedWeaponId) {
+    const row = allowedEquipment.get(payload.pinnedWeaponId);
+    if (!row || row.slot !== "weapon") {
+      throw new Error("Основное оружие можно выбрать только из подтверждённых API-предметов.");
+    }
+  }
+
+  if (payload.pinnedArmorId) {
+    const row = allowedEquipment.get(payload.pinnedArmorId);
+    if (!row || row.slot !== "armor") {
+      throw new Error("Основную броню можно выбрать только из подтверждённых API-предметов.");
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("sc_profile_showcases")
+    .upsert(
+      {
+        discord_user_id: discordUserId,
+        title: cleanOptionalText(payload.title),
+        bio: cleanOptionalText(payload.bio),
+        visibility: payload.visibility,
+        pinned_weapon: payload.pinnedWeaponId,
+        pinned_armor: payload.pinnedArmorId,
+        updated_at: now,
+      },
+      { onConflict: "discord_user_id" },
+    )
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return {
+    ...data,
+    badges: Array.isArray((data as any).badges) ? (data as any).badges : [],
+  } as StalcraftProfileShowcaseRow;
 }
 
 export async function linkStalcraftProfileFromCode(discordUserId: string, code: string) {

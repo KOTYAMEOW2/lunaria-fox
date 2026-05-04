@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, startTransition } from "react";
-import type { StalcraftCharacterCacheRow, StalcraftProfileRow } from "@/lib/stalcraft/types";
+import { startTransition, useMemo, useState } from "react";
+import type {
+  StalcraftCharacterCacheRow,
+  StalcraftProfileRow,
+  StalcraftProfileShowcaseRow,
+} from "@/lib/stalcraft/types";
 
 type EquipmentRow = {
   id: string;
+  character_id: string | null;
   slot: string;
   item_name: string;
   item_rank: string | null;
@@ -18,6 +23,7 @@ type EquipmentRow = {
 
 type Props = {
   profile: StalcraftProfileRow | null;
+  showcase: StalcraftProfileShowcaseRow | null;
   characters: StalcraftCharacterCacheRow[];
   equipment: EquipmentRow[];
   friends: Array<{
@@ -42,13 +48,54 @@ function getEquipmentWikiUrl(item: EquipmentRow) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export function StalcraftProfileClient({ profile, characters, equipment, friends }: Props) {
+function isVerifiedEquipment(item: EquipmentRow) {
+  return item.source === "api" || Boolean(item.verified_at);
+}
+
+function pickCharacterItemName(rows: EquipmentRow[], slot: "weapon" | "armor") {
+  const filtered = rows.filter((item) => item.slot === slot);
+  const preferred = filtered.find((item) => item.source === "manual") || filtered[0];
+  return preferred?.item_name || "";
+}
+
+export function StalcraftProfileClient({ profile, showcase, characters, equipment, friends }: Props) {
   const [status, setStatus] = useState("");
   const [selected, setSelected] = useState(profile?.selected_character_id || "");
   const [equipmentRows, setEquipmentRows] = useState(equipment || []);
+  const [showcaseForm, setShowcaseForm] = useState({
+    title: showcase?.title || "",
+    bio: showcase?.bio || "",
+    visibility: showcase?.visibility || "clan",
+    pinnedWeaponId: showcase?.pinned_weapon || "",
+    pinnedArmorId: showcase?.pinned_armor || "",
+  });
+  const currentCharacterId = selected || profile?.selected_character_id || "";
+
+  const selectedCharacterEquipment = useMemo(
+    () => equipmentRows.filter((item) => item.character_id === currentCharacterId),
+    [currentCharacterId, equipmentRows],
+  );
+
+  const verifiedEquipment = useMemo(
+    () => equipmentRows.filter((item) => isVerifiedEquipment(item)),
+    [equipmentRows],
+  );
+
+  const weaponOptions = useMemo(
+    () => verifiedEquipment.filter((item) => item.slot === "weapon"),
+    [verifiedEquipment],
+  );
+  const armorOptions = useMemo(
+    () => verifiedEquipment.filter((item) => item.slot === "armor"),
+    [verifiedEquipment],
+  );
+
+  const showcasePinnedWeapon = equipmentRows.find((item) => item.id === showcaseForm.pinnedWeaponId) || null;
+  const showcasePinnedArmor = equipmentRows.find((item) => item.id === showcaseForm.pinnedArmorId) || null;
+
   const [gearForm, setGearForm] = useState({
-    weapon: equipment.find((item) => item.slot === "weapon")?.item_name || "",
-    armor: equipment.find((item) => item.slot === "armor")?.item_name || "",
+    weapon: pickCharacterItemName(selectedCharacterEquipment, "weapon"),
+    armor: pickCharacterItemName(selectedCharacterEquipment, "armor"),
   });
 
   async function selectCharacter(value: string) {
@@ -81,6 +128,23 @@ export function StalcraftProfileClient({ profile, characters, equipment, friends
     if (response.ok) startTransition(() => window.location.reload());
   }
 
+  async function saveShowcase() {
+    setStatus("Сохраняю профиль игрока...");
+    const response = await fetch("/api/stalcraft/showcase", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: showcaseForm.title || null,
+        bio: showcaseForm.bio || null,
+        visibility: showcaseForm.visibility,
+        pinnedWeaponId: showcaseForm.pinnedWeaponId || null,
+        pinnedArmorId: showcaseForm.pinnedArmorId || null,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    setStatus(response.ok ? "Профиль игрока сохранён." : payload.error || "Ошибка сохранения профиля.");
+  }
+
   async function saveGear(slot: "weapon" | "armor") {
     const itemName = gearForm[slot].trim();
     if (!itemName) {
@@ -88,7 +152,7 @@ export function StalcraftProfileClient({ profile, characters, equipment, friends
       return;
     }
 
-    setStatus("Сохраняю снаряжение...");
+    setStatus("Сохраняю уточнение снаряжения...");
     const response = await fetch("/api/stalcraft/equipment", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -104,12 +168,13 @@ export function StalcraftProfileClient({ profile, characters, equipment, friends
       setStatus(payload.error || "Ошибка сохранения снаряжения.");
       return;
     }
+
     setEquipmentRows((current) => [
       payload.equipment,
-      ...current.filter((item) => item.id !== payload.equipment.id && !(item.slot === payload.equipment.slot && item.source === "manual")),
+      ...current.filter((item) => item.id !== payload.equipment.id && !(item.character_id === payload.equipment.character_id && item.slot === payload.equipment.slot && item.source === "manual")),
     ]);
     setGearForm((current) => ({ ...current, [slot]: payload.equipment.item_name }));
-    setStatus(`Снаряжение сохранено: ${payload.equipment.item_name}.`);
+    setStatus(`Снаряжение уточнено: ${payload.equipment.item_name}.`);
   }
 
   async function deleteGear(item: EquipmentRow) {
@@ -126,7 +191,12 @@ export function StalcraftProfileClient({ profile, characters, equipment, friends
     }
 
     setEquipmentRows((current) => current.filter((row) => row.id !== item.id));
-    if (item.source === "manual" && (item.slot === "weapon" || item.slot === "armor")) {
+    setShowcaseForm((current) => ({
+      ...current,
+      pinnedWeaponId: current.pinnedWeaponId === item.id ? "" : current.pinnedWeaponId,
+      pinnedArmorId: current.pinnedArmorId === item.id ? "" : current.pinnedArmorId,
+    }));
+    if (item.character_id === currentCharacterId && (item.slot === "weapon" || item.slot === "armor")) {
       setGearForm((current) => ({ ...current, [item.slot]: "" }));
     }
     setStatus(`Снаряжение удалено: ${item.item_name}.`);
@@ -152,10 +222,10 @@ export function StalcraftProfileClient({ profile, characters, equipment, friends
 
       {characters.length > 0 ? (
         <div className="section">
-          <h3>Выбранный персонаж</h3>
+          <h3>Выбранный персонаж для Discord-бота</h3>
           <div className="field">
-            <label>Персонаж для Discord-бота</label>
-            <select value={`${profile?.selected_region || ""}:${selected}`} onChange={(event) => selectCharacter(event.target.value)}>
+            <label>Персонаж для `/sc-profile`, `/sc-sync` и клановой синхронизации</label>
+            <select value={`${profile?.selected_region || ""}:${currentCharacterId}`} onChange={(event) => selectCharacter(event.target.value)}>
               <option value=":">Не выбран</option>
               {characters.map((character) => (
                 <option key={`${character.region}:${character.character_id}`} value={`${character.region}:${character.character_id}`}>
@@ -171,33 +241,163 @@ export function StalcraftProfileClient({ profile, characters, equipment, friends
 
       {status ? <p className="page-alert">{status}</p> : null}
 
+      {profile ? (
+        <div className="section">
+          <div className="dashboard-head">
+            <div>
+              <span className="eyebrow sc-eyebrow">Player profile</span>
+              <h3>Настраиваемый профиль игрока</h3>
+              <p className="muted">
+                Это профиль аккаунта, а не одного персонажа. Он показывает всех твоих персонажей, их кланы и альянсы,
+                а оружие и броня для витрины выбираются только из подтверждённых API-предметов.
+              </p>
+            </div>
+          </div>
+
+          <div className="form-grid">
+            <div className="field">
+              <label>Заголовок профиля</label>
+              <input value={showcaseForm.title} onChange={(event) => setShowcaseForm({ ...showcaseForm, title: event.target.value })} placeholder="Например: Lunaria Fox Vanguard" />
+            </div>
+            <div className="field">
+              <label>Видимость</label>
+              <select value={showcaseForm.visibility} onChange={(event) => setShowcaseForm({ ...showcaseForm, visibility: event.target.value as "public" | "clan" | "private" })}>
+                <option value="clan">Только клан</option>
+                <option value="public">Публичный</option>
+                <option value="private">Только я</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="field">
+            <label>Описание профиля</label>
+            <textarea
+              rows={4}
+              value={showcaseForm.bio}
+              onChange={(event) => setShowcaseForm({ ...showcaseForm, bio: event.target.value })}
+              placeholder="Коротко о себе, специализации, роли в клане или любимых персонажах."
+            />
+          </div>
+
+          <div className="form-grid">
+            <div className="field">
+              <label>Основное оружие профиля</label>
+              <select value={showcaseForm.pinnedWeaponId} onChange={(event) => setShowcaseForm({ ...showcaseForm, pinnedWeaponId: event.target.value })}>
+                <option value="">Не выбрано</option>
+                {weaponOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.item_name}{item.character_id ? ` · ${characters.find((character) => character.character_id === item.character_id)?.character_name || item.character_id}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label>Основная броня профиля</label>
+              <select value={showcaseForm.pinnedArmorId} onChange={(event) => setShowcaseForm({ ...showcaseForm, pinnedArmorId: event.target.value })}>
+                <option value="">Не выбрано</option>
+                {armorOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.item_name}{item.character_id ? ` · ${characters.find((character) => character.character_id === item.character_id)?.character_name || item.character_id}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="sc-showcase-preview">
+            <article className="activity-card">
+              <div className="activity-card-head">
+                <span className="badge success">{showcaseForm.visibility}</span>
+                <span className="activity-time">{characters.length} char(s)</span>
+              </div>
+              <strong>{showcaseForm.title || profile.exbo_display_login || profile.selected_character_name || "STALCRAFT Player"}</strong>
+              <p>{showcaseForm.bio || "Профиль аккаунта настроен минимально. Добавь описание, чтобы витрина выглядела живее."}</p>
+              <p>
+                Оружие: {showcasePinnedWeapon?.item_name || "не выбрано"}
+                <br />
+                Броня: {showcasePinnedArmor?.item_name || "не выбрана"}
+              </p>
+            </article>
+          </div>
+
+          <div className="stack-actions" style={{ marginTop: 16 }}>
+            <button className="secondary-button sc-secondary" onClick={saveShowcase} type="button">
+              Сохранить профиль игрока
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {profile ? (
+        <div className="section">
+          <div className="dashboard-head">
+            <div>
+              <span className="eyebrow sc-eyebrow">Account characters</span>
+              <h3>Все персонажи аккаунта</h3>
+              <p className="muted">
+                Здесь видны все персонажи, привязанные к текущему EXBO-аккаунту, их кланы, ранги и альянсы.
+              </p>
+            </div>
+            <span className="badge muted">{characters.length} char(s)</span>
+          </div>
+          <div className="sc-character-grid">
+            {characters.map((character) => {
+              const characterItems = equipmentRows.filter((item) => item.character_id === character.character_id);
+              return (
+                <article className="activity-card sc-character-card" key={`${character.region}:${character.character_id}`}>
+                  <div className="activity-card-head">
+                    <span className="badge success">{character.region}</span>
+                    <span className="activity-time">{profile.selected_character_id === character.character_id ? "bot selected" : "account"}</span>
+                  </div>
+                  <strong>{character.character_name}</strong>
+                  <div className="sc-character-meta">
+                    <span>Клан: {character.clan_name || "без клана"}</span>
+                    <span>Ранг: {character.clan_rank || "не указан"}</span>
+                    <span>Альянс/фракция: {character.clan_alliance || "не указан"}</span>
+                  </div>
+                  <div className="sc-character-gear-list">
+                    {characterItems.length > 0 ? characterItems.map((item) => (
+                      <div className="sc-character-gear-item" key={item.id}>
+                        <span>{item.slot}</span>
+                        <strong>{item.item_name}</strong>
+                        <small>{item.source || "manual"}{item.verified_at ? " · verified" : ""}</small>
+                      </div>
+                    )) : <p className="panel-note">Снаряжение по этому персонажу пока не найдено.</p>}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       {profile?.selected_character_id ? (
         <div className="section">
           <div className="dashboard-head">
             <div>
               <span className="eyebrow sc-eyebrow">Readiness gear</span>
-              <h3>Master-снаряжение для КВ</h3>
+              <h3>Уточнение снаряжения выбранного персонажа</h3>
               <p className="muted">
-                Если STALCRAFT API не подтянул экипировку автоматически, укажи оружие и броню вручную.
-                Ввод сверяется с официальной базой предметов STALCRAFT, а карточка даёт быстрый переход на stalcraft.wiki.
+                Подтверждение проходит только если такой предмет уже был найден у выбранного персонажа через STALCRAFT API.
+                То есть сюда больше нельзя вписать вещь, которой у игрока нет.
               </p>
             </div>
-            <span className="badge muted">{equipmentRows.length} item(s)</span>
+            <span className="badge muted">{selectedCharacterEquipment.length} item(s)</span>
           </div>
           <div className="form-grid">
             <div className="field">
-              <label>Master-оружие</label>
+              <label>Оружие выбранного персонажа</label>
               <input value={gearForm.weapon} onChange={(event) => setGearForm({ ...gearForm, weapon: event.target.value })} placeholder="Например: FN F2000 Tactical" />
-              <button className="secondary-button sc-secondary" onClick={() => saveGear("weapon")} type="button">Сохранить оружие</button>
+              <button className="secondary-button sc-secondary" onClick={() => saveGear("weapon")} type="button">Подтвердить оружие</button>
             </div>
             <div className="field">
-              <label>Master-броня</label>
+              <label>Броня выбранного персонажа</label>
               <input value={gearForm.armor} onChange={(event) => setGearForm({ ...gearForm, armor: event.target.value })} placeholder="Например: Сатурн / Танк / Центурион" />
-              <button className="secondary-button sc-secondary" onClick={() => saveGear("armor")} type="button">Сохранить броню</button>
+              <button className="secondary-button sc-secondary" onClick={() => saveGear("armor")} type="button">Подтвердить броню</button>
             </div>
           </div>
           <div className="sc-gear-grid">
-            {equipmentRows.length > 0 ? equipmentRows.map((item) => (
+            {selectedCharacterEquipment.length > 0 ? selectedCharacterEquipment.map((item) => (
               <article className="activity-card" key={item.id || `${item.slot}-${item.item_name}`}>
                 <div className="activity-card-head">
                   <span className="badge success">{item.slot}</span>
@@ -219,7 +419,7 @@ export function StalcraftProfileClient({ profile, characters, equipment, friends
                   </button>
                 </div>
               </article>
-            )) : <p className="panel-note">Снаряжение пока не указано.</p>}
+            )) : <p className="panel-note">Снаряжение для выбранного персонажа пока не указано.</p>}
           </div>
         </div>
       ) : null}
