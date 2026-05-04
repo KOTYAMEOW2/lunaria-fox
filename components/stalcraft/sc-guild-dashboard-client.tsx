@@ -35,31 +35,6 @@ const MAX_CW_SQUADS = 7;
 
 const OCR_IGNORED_ROW = /^(сводка|преимущество|захваченные|информация|ник|игрок|player|name|kills?|убийств|смерт|death|assist|казна|score|счет|счёт|ранг|k\/d|у\s+с\s+п)/i;
 
-function parseManualResultRows(value: string): CwResultRow[] {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const parts = line.split(/[;,]/).map((item) => item.trim());
-      const [character_name] = parts;
-      const hasMatches = parts.length >= 7;
-      const [matches_count, kills, deaths, assists, treasury_spent, score] = hasMatches
-        ? parts.slice(1)
-        : ["1", ...parts.slice(1)];
-      return {
-        character_name,
-        matches_count: Math.max(1, toInt(matches_count || "1")),
-        kills: toInt(kills || "0"),
-        deaths: toInt(deaths || "0"),
-        assists: toInt(assists || "0"),
-        treasury_spent: toInt(treasury_spent || "0"),
-        score: toInt(score || "0"),
-      };
-    })
-    .filter((row) => row.character_name);
-}
-
 function parseFloatStat(value: string | undefined) {
   if (!value) return null;
   const parsed = Number.parseFloat(value.replace(",", "."));
@@ -995,16 +970,6 @@ function parseOcrResultRowsFallback(value: string): CwResultRow[] {
     .filter(Boolean) as CwResultRow[];
 }
 
-function rowsToText(rows: CwResultRow[]) {
-  return rows
-    .map((row) => `${row.character_name};${row.matches_count};${row.kills};${row.deaths};${row.assists};${row.treasury_spent};${row.score}`)
-    .join("\n");
-}
-
-function syncManualRows(rows: CwResultRow[], setResultText: (value: string) => void) {
-  setResultText(rows.length ? rowsToText(rows) : "");
-}
-
 function aggregateRows(rows: CwResultRow[]) {
   const byName = new Map<string, CwResultRow & { tabs_count: number }>();
 
@@ -1197,7 +1162,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
     [data.clanMembers],
   );
   const [status, setStatus] = useState("");
-  const [resultText, setResultText] = useState("");
+  const [editorRows, setEditorRows] = useState<CwResultRow[]>([]);
   const [ocrStatus, setOcrStatus] = useState("Картинка не сохраняется: OCR работает в браузере.");
   const [ocrNotes, setOcrNotes] = useState<string[]>([]);
   const [ocrSource, setOcrSource] = useState("—");
@@ -1245,8 +1210,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
       total: rows.length,
     };
   }, [data.attendance]);
-  const manualRows = useMemo(() => parseManualResultRows(resultText), [resultText]);
-  const parsedRows = useMemo(() => sanitizeCwRows(manualRows, knownRosterNames).rows, [manualRows, knownRosterNames]);
+  const parsedRows = useMemo(() => sanitizeCwRows(editorRows, knownRosterNames).rows, [editorRows, knownRosterNames]);
   const totalRows = useMemo(() => aggregateRows(resultRows), [resultRows]);
   const tabsSummary = useMemo(() => {
     const previewScore = ocrPreviewRows.reduce((sum, row) => sum + toInt(row.score), 0);
@@ -1407,7 +1371,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
       setOcrPreviewRows([]);
       setOcrNotes([]);
       setOcrSource("—");
-      setResultText("");
+      setEditorRows([]);
     }
   }
 
@@ -1427,7 +1391,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
       setOcrPreviewRows([]);
       setOcrNotes([]);
       setOcrSource("—");
-      setResultText("");
+      setEditorRows([]);
       setStatus(`Таблица очищена. Удалено строк: ${body.count || 0}.`);
     } else {
       setStatus(body.error || "Ошибка очистки таблицы.");
@@ -1711,7 +1675,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
       setOcrPreviewRows(finalRows);
       setOcrNotes(finalNotes);
       setOcrSource(bestLabel || "не определён");
-      setResultText(finalRows.length > 0 ? rowsToText(finalRows) : "");
+      setEditorRows(finalRows);
       setOcrStatus(
         finalRows.length
           ? `Распознано строк: ${finalRows.length}. Лучший вариант: ${bestLabel}. Проверь строки ниже и нажми "Загрузить табы".`
@@ -1725,7 +1689,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
   }
 
   function patchManualRow(index: number, patch: Partial<CwResultRow>) {
-    const nextRows = manualRows.map((row, rowIndex) => {
+    const nextRows = editorRows.map((row, rowIndex) => {
       if (rowIndex !== index) return row;
       return {
         ...row,
@@ -1739,17 +1703,17 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
         score: Math.max(0, toInt(patch.score ?? row.score)),
       };
     });
-    syncManualRows(nextRows, setResultText);
+    setEditorRows(nextRows);
   }
 
   function removeManualRow(index: number) {
-    const nextRows = manualRows.filter((_, rowIndex) => rowIndex !== index);
-    syncManualRows(nextRows, setResultText);
+    const nextRows = editorRows.filter((_, rowIndex) => rowIndex !== index);
+    setEditorRows(nextRows);
   }
 
   function addManualRow() {
-    syncManualRows([
-      ...manualRows,
+    setEditorRows([
+      ...editorRows,
       {
         character_name: "",
         matches_count: 1,
@@ -1759,7 +1723,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
         treasury_spent: 0,
         score: 0,
       },
-    ], setResultText);
+    ]);
   }
 
   return (
@@ -1990,7 +1954,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                 <p>{ocrSource === "—" ? "источник ещё не выбран" : `лучший проход: ${ocrSource}`}</p>
               </article>
               <article className="sc-tabs-metric-card">
-                <span>Ручной буфер</span>
+                <span>Редактор строк</span>
                 <strong>{tabsSummary.parsedRows}</strong>
                 <p>строк готово к загрузке · счёт {formatStat(parsedRows.reduce((sum, row) => sum + row.score, 0))}</p>
               </article>
@@ -2024,7 +1988,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                     <span className="eyebrow sc-eyebrow">Table editor</span>
                     <h3>Готовая таблица для проверки и правки</h3>
                   </div>
-                  <span className="badge muted">{parsedRows.length} row(s)</span>
+                  <span className="badge muted">{editorRows.length} row(s)</span>
                 </div>
 
                 <p className="muted">
@@ -2040,7 +2004,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                     <button className="ghost-button" onClick={addManualRow} type="button">Добавить строку</button>
                   </div>
 
-                  {manualRows.length > 0 ? (
+                  {editorRows.length > 0 ? (
                     <div className="sc-manual-editor-wrap">
                       <table className="sc-manual-editor-table">
                         <thead>
@@ -2057,7 +2021,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                           </tr>
                         </thead>
                         <tbody>
-                          {manualRows.map((row, index) => (
+                          {editorRows.map((row, index) => (
                             <tr key={`manual-row-${index}`}>
                               <td>{index + 1}</td>
                               <td>
@@ -2097,7 +2061,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                     </div>
                   ) : (
                     <div className="panel-note" style={{ marginTop: 12 }}>
-                      Здесь появятся строки из OCR или ручного буфера. Можно сразу добавить свою строку и собрать таблицу вручную.
+                      Здесь появятся строки из OCR. Можно сразу добавить свою строку и собрать таблицу вручную.
                     </div>
                   )}
                 </div>
@@ -2112,7 +2076,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
 
                 <div className="sc-overview-actions">
                   <button className="primary-button sc-primary" disabled={parsedRows.length === 0} onClick={uploadResults} type="button">Загрузить табы</button>
-                  <button className="ghost-button sc-danger-button" disabled={resultRows.length === 0} onClick={clearResults} type="button">Очистить таблицу</button>
+                  <button className="ghost-button sc-danger-button" disabled={resultRows.length === 0 && editorRows.length === 0 && ocrPreviewRows.length === 0} onClick={clearResults} type="button">Очистить таблицу</button>
                 </div>
               </div>
             </div>

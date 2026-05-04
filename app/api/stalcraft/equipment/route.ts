@@ -6,9 +6,13 @@ import { deleteStalcraftEquipment, saveManualStalcraftEquipment } from "@/lib/st
 
 const schema = z.object({
   slot: z.enum(["weapon", "armor"]),
-  itemName: z.string().min(2).max(120),
+  equipmentId: z.string().uuid().nullable().optional(),
+  itemName: z.string().min(2).max(120).nullable().optional(),
   itemRank: z.string().max(60).nullable().optional(),
   itemCategory: z.string().max(60).nullable().optional(),
+}).refine((value) => Boolean(value.equipmentId || (value.itemName && value.itemName.trim().length >= 2)), {
+  message: "Нужно выбрать найденный предмет или указать название.",
+  path: ["itemName"],
 });
 
 const deleteSchema = z.object({

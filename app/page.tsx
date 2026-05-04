@@ -2,34 +2,38 @@ import Link from "next/link";
 
 import { buildDashboardUrl, publicEnv } from "@/lib/public-env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { getClanRating } from "@/lib/stalcraft/rating";
 
 export const dynamic = "force-dynamic";
 
-type EmissionEvent = {
-  id: string;
-  event_type: string | null;
-  title: string | null;
-  message: string | null;
-  meta: Record<string, unknown> | null;
+type EmissionHistoryRow = {
+  id: number;
+  guild_id: string;
+  state: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  region: string | null;
   created_at: string | null;
 };
 
 async function getHomepageData() {
   const supabase = getSupabaseAdmin();
-  if (!supabase) return { emissions: [], guildCount: 0 };
+  if (!supabase) return { emissions: [], guildCount: 0, activeEmissionCount: 0 };
 
-  const [{ data: emissions }, { count: guildCount }] = await Promise.all([
+  const [{ data: emissions }, { count: guildCount }, { count: activeEmissionCount }] = await Promise.all([
     supabase
-      .from("sc_logs")
-      .select("id, event_type, title, message, meta, created_at")
-      .in("event_type", ["emission_active", "emission_idle", "emission_start", "emission_end"])
+      .from("sc_emission_history")
+      .select("id, guild_id, state, started_at, ended_at, region, created_at")
       .order("created_at", { ascending: false })
-      .limit(4),
+      .limit(5),
     supabase.from("sc_guilds").select("*", { count: "exact", head: true }),
+    supabase.from("sc_emission_state").select("*", { count: "exact", head: true }).eq("state", "active"),
   ]);
 
-  return { emissions: (emissions || []) as EmissionEvent[], guildCount: guildCount || 0 };
+  return {
+    emissions: (emissions || []) as EmissionHistoryRow[],
+    guildCount: guildCount || 0,
+    activeEmissionCount: activeEmissionCount || 0,
+  };
 }
 
 function nextCwTime() {
@@ -56,10 +60,20 @@ function formatMsk(value: string | null) {
   }).format(new Date(value));
 }
 
-function emissionState(type: string | null) {
-  if (type === "emission_active" || type === "emission_start") return { label: "АКТИВЕН", cls: "emission-active" };
-  if (type === "emission_end") return { label: "ЗАВЕРШЁН", cls: "emission-end" };
-  return { label: "НЕИЗВЕСТНО", cls: "emission-idle" };
+function emissionState(state: string | null, activeCount: number) {
+  if (state === "active" || activeCount > 0) return { label: "ВЫБРОС ИДЁТ", cls: "live" };
+  if (state === "idle") return { label: "СПОКОЙНО", cls: "idle" };
+  return { label: "НЕИЗВЕСТНО", cls: "idle" };
+}
+
+function emissionEventLabel(row: EmissionHistoryRow) {
+  if (row.state === "active") return "Выброс начался";
+  if (row.state === "idle") return "Выброс закончился";
+  return "Событие выброса";
+}
+
+function emissionEventMoment(row: EmissionHistoryRow) {
+  return row.state === "active" ? row.started_at || row.created_at : row.ended_at || row.created_at;
 }
 
 function timeUntil(target: Date) {
@@ -72,13 +86,11 @@ function timeUntil(target: Date) {
 }
 
 export default async function HomePage() {
-  const { emissions, guildCount } = await getHomepageData();
+  const { emissions, guildCount, activeEmissionCount } = await getHomepageData();
   const cwCountdown = nextCwTime();
-  const rating = await getClanRating().catch(() => null);
-  const top3 = rating?.rows.slice(0, 3) || [];
 
   const latestEmission = emissions[0];
-  const emState = emissionState(latestEmission?.event_type || null);
+  const emState = emissionState(latestEmission?.state || null, activeEmissionCount);
 
   return (
     <>
@@ -109,56 +121,45 @@ export default async function HomePage() {
             <div className="sc-hero-right">
               <div className="sc-status-card">
                 <div className="sc-status-card-head">
-                  <span className="sc-status-label">КВ</span>
-                  <span className={`sc-status-badge ${latestEmission ? "live" : "idle"}`}>{emState.label}</span>
+                  <span className="sc-status-label">Штаб</span>
+                  <span className={`sc-status-badge ${emState.cls}`}>{emState.label}</span>
                 </div>
                 <div className="sc-countdown">
                   <div className="sc-countdown-label">До КВ 20:00 МСК</div>
                   <div className="sc-countdown-value">{cwCountdown.text}</div>
                 </div>
                 <div className="sc-countdown-sub">{timeUntil(cwCountdown.target)}</div>
-                <div className="sc-emission-row">
+                <div className="sc-emission-summary">
                   <div className="sc-emission-item">
                     <span className="sc-emission-label">Последний выброс</span>
-                    <span className="sc-emission-time">{latestEmission ? formatMsk(latestEmission.created_at) : "—"} МСК</span>
+                    <span className="sc-emission-time">{latestEmission ? `${formatMsk(emissionEventMoment(latestEmission))} МСК` : "—"}</span>
                   </div>
                   <div className="sc-emission-item">
-                    <span className="sc-emission-label">Ботов на серверах</span>
-                    <span className="sc-emission-time">{guildCount} серверов</span>
+                    <span className="sc-emission-label">Активно сейчас</span>
+                    <span className="sc-emission-time">{activeEmissionCount} из {guildCount} серверов</span>
                   </div>
+                </div>
+                <div className="sc-status-history">
+                  <div className="sc-status-history-head">
+                    <span>Последние события выбросов</span>
+                  </div>
+                  {emissions.length > 0 ? emissions.map((row) => (
+                    <div className="sc-status-history-row" key={`${row.id}-${row.guild_id}`}>
+                      <div>
+                        <strong>{emissionEventLabel(row)}</strong>
+                        <span>{row.region || "RU"} регион</span>
+                      </div>
+                      <time>{formatMsk(emissionEventMoment(row))}</time>
+                    </div>
+                  )) : (
+                    <div className="sc-status-history-empty">История выбросов пока не собрана ботом.</div>
+                  )}
                 </div>
               </div>
             </div>
           </div>
         </div>
       </section>
-
-      {/* ─── Top Clans ────────────────────────────────────────── */}
-      {top3.length > 0 ? (
-        <section className="sc-top-clans">
-          <div className="container">
-            <div className="sc-section-header">
-              <div>
-                <span className="eyebrow">Рейтинг</span>
-                <h2>Лучшие кланы</h2>
-              </div>
-              <Link className="sc-btn sc-btn-ghost" href="/clans">Весь рейтинг →</Link>
-            </div>
-            <div className="sc-top-clans-grid">
-              {top3.map((clan, i) => (
-                <div key={clan.clanId} className={`sc-top-clan-card rank-${i + 1}`}>
-                  <div className="sc-top-clan-rank">#{clan.rank}</div>
-                  <div className="sc-top-clan-info">
-                    <strong>{clan.tag ? `[${clan.tag}] ` : ""}{clan.name}</strong>
-                    <span>{clan.region} · {clan.memberCount} чел.</span>
-                  </div>
-                  <div className="sc-top-clan-score">{clan.score.toLocaleString("ru-RU")}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      ) : null}
 
       {/* ─── Features ─────────────────────────────────────────── */}
       <section className="sc-features">

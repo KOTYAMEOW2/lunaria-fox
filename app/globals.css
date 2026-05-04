@@ -3647,18 +3647,20 @@ select option {
   letter-spacing: 0.04em;
 }
 
-.sc-emission-row {
-  display: flex;
-  flex-direction: column;
+.sc-emission-summary {
+  display: grid;
   gap: 10px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(109, 230, 179, 0.1);
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(109, 230, 179, 0.12);
+  background: linear-gradient(135deg, rgba(24, 32, 28, 0.96), rgba(12, 20, 15, 0.94));
 }
 
 .sc-emission-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 }
 
 .sc-emission-label {
@@ -3670,6 +3672,60 @@ select option {
   font-size: 0.85rem;
   color: var(--text-muted);
   font-weight: 600;
+}
+
+.sc-status-history {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.sc-status-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+.sc-status-history-head span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.sc-status-history-row,
+.sc-status-history-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(109, 230, 179, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.sc-status-history-row strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #fff8e6;
+  font-size: 0.92rem;
+}
+
+.sc-status-history-row span,
+.sc-status-history-empty {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
+
+.sc-status-history-row time {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: right;
 }
 
 /* Top clans */
