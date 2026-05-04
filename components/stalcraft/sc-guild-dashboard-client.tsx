@@ -339,6 +339,12 @@ const STALCRAFT_FIXED_COLUMNS = [
   { key: "score", x: 0.86, width: 0.085, kind: "number" },
 ] as const;
 
+const STALCRAFT_FIXED_ROW_LAYOUTS = [
+  { label: "10 rows", top: 0.018, height: 0.95, rows: 10 },
+  { label: "10 rows lower", top: 0.03, height: 0.94, rows: 10 },
+  { label: "11 rows", top: 0.01, height: 0.96, rows: 11 },
+] as const;
+
 /**
  * Scans a canvas for vertical grid lines (column separators) in a STALCRAFT tab.
  * Returns array of {x, width} column bounds as fractions [0..1].
@@ -448,6 +454,40 @@ function cropColumn(
   return canvas;
 }
 
+function cropRect(
+  source: CanvasImageSource,
+  sourceW: number,
+  sourceH: number,
+  rect: { x: number; y: number; width: number; height: number },
+  padX = 0,
+  padY = 0,
+  scale = 1,
+) {
+  const x = Math.max(0, sourceW * rect.x + padX);
+  const y = Math.max(0, sourceH * rect.y + padY);
+  const width = Math.min(sourceW * rect.width - padX * 2, sourceW - x);
+  const height = Math.min(sourceH * rect.height - padY * 2, sourceH - y);
+  if (width <= 0 || height <= 0) return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.floor(width * scale));
+  canvas.height = Math.max(1, Math.floor(height * scale));
+
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(source, x, y, width, height, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+function scoreRecognizedRows(rows: CwResultRow[]) {
+  return rows.reduce((score, row) => {
+    const filledStats = [row.kills, row.deaths, row.assists, row.treasury_spent, row.score].filter((value) => Number(value) > 0).length;
+    return score + row.character_name.length * 2 + filledStats * 20 + (row.score > 0 ? 30 : 0);
+  }, 0);
+}
+
 function sanitizeOcrColumnLines(lines: string[], kind: "name" | "number") {
   if (kind === "number") {
     return lines
@@ -468,12 +508,89 @@ async function recognizePreparedCanvas(
 ) {
   await worker.setParameters({
     preserve_interword_spaces: "1",
+    tessedit_pageseg_mode: kind === "number" ? "8" : "7",
     tessedit_char_whitelist: kind === "number"
       ? "0123456789OoОоIlІ|ЗзБб"
       : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя0123456789_-.[]# ",
-  });
+  } as any);
   const result = await worker.recognize(canvas);
   return (result.data.text || "").trim();
+}
+
+async function ocrStalcraftFixedRows(
+  imageSource: CanvasImageSource,
+  imageWidth: number,
+  imageHeight: number,
+  worker: Tesseract.Worker,
+  onStatus: (msg: string) => void,
+): Promise<{ rows: CwResultRow[]; label: string } | null> {
+  let bestRows: CwResultRow[] = [];
+  let bestLabel = "";
+  let bestScore = -1;
+
+  for (const crop of STALCRAFT_FIXED_ROW_CROPS) {
+    for (const mode of ["whiteText", "whiteTextSoft", "contrast"] as const) {
+      const tableCanvas = buildOcrCanvas(imageSource, imageWidth, imageHeight, crop, mode);
+      try {
+        for (const layout of STALCRAFT_FIXED_ROW_LAYOUTS) {
+          onStatus(`${crop.label} · ${mode} · ${layout.label}: OCR строк...`);
+          const rows: CwResultRow[] = [];
+          const rowHeight = layout.height / layout.rows;
+
+          for (let rowIndex = 0; rowIndex < layout.rows; rowIndex += 1) {
+            const rowTop = layout.top + rowIndex * rowHeight;
+            const parts: string[] = [];
+
+            for (const spec of STALCRAFT_FIXED_COLUMNS) {
+              const cellCanvas = cropRect(
+                tableCanvas,
+                tableCanvas.width,
+                tableCanvas.height,
+                { x: spec.x, y: rowTop, width: spec.width, height: rowHeight },
+                spec.kind === "name" ? 8 : 2,
+                2,
+                spec.kind === "name" ? 2.2 : 2.8,
+              );
+              if (!cellCanvas) {
+                parts.push("");
+                continue;
+              }
+
+              try {
+                const text = await recognizePreparedCanvas(worker, cellCanvas, spec.kind);
+                const line = sanitizeOcrColumnLines(text.split("\n"), spec.kind)[0] || "";
+                parts.push(line);
+              } finally {
+                cellCanvas.remove();
+              }
+            }
+
+            const row = parseColumnRow(parts);
+            if (row) rows.push(row);
+          }
+
+          const normalized = sanitizeRows(rows).rows;
+          const score = scoreRecognizedRows(normalized);
+          if (
+            normalized.length > bestRows.length
+            || (normalized.length === bestRows.length && score > bestScore)
+          ) {
+            bestRows = normalized;
+            bestLabel = `${crop.label} · ${mode} · ${layout.label} · fixed rows`;
+            bestScore = score;
+          }
+
+          if (normalized.length >= 8 && score >= bestScore) {
+            return { rows: normalized, label: `${crop.label} · ${mode} · ${layout.label} · fixed rows` };
+          }
+        }
+      } finally {
+        tableCanvas.remove();
+      }
+    }
+  }
+
+  return bestRows.length > 0 ? { rows: bestRows, label: bestLabel } : null;
 }
 
 async function ocrStalcraftFixedLayout(
@@ -485,6 +602,14 @@ async function ocrStalcraftFixedLayout(
 ): Promise<{ rows: CwResultRow[]; label: string } | null> {
   let bestRows: CwResultRow[] = [];
   let bestLabel = "";
+  let bestScore = -1;
+
+  const rowBased = await ocrStalcraftFixedRows(imageSource, imageWidth, imageHeight, worker, onStatus);
+  if (rowBased?.rows?.length) {
+    bestRows = rowBased.rows;
+    bestLabel = rowBased.label;
+    bestScore = scoreRecognizedRows(rowBased.rows);
+  }
 
   for (const crop of STALCRAFT_FIXED_ROW_CROPS) {
     for (const mode of ["whiteText", "whiteTextSoft", "contrast"] as const) {
@@ -528,11 +653,16 @@ async function ocrStalcraftFixedLayout(
         }
 
         const normalized = sanitizeRows(rows).rows;
-        if (normalized.length > bestRows.length) {
+        const score = scoreRecognizedRows(normalized);
+        if (
+          normalized.length > bestRows.length
+          || (normalized.length === bestRows.length && score > bestScore)
+        ) {
           bestRows = normalized;
           bestLabel = `${crop.label} · ${mode} · fixed columns`;
+          bestScore = score;
         }
-        if (normalized.length >= 8) {
+        if (normalized.length >= 8 && score >= bestScore) {
           return { rows: normalized, label: `${crop.label} · ${mode} · fixed columns` };
         }
       } finally {
