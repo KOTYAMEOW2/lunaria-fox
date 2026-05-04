@@ -161,45 +161,79 @@ async function syncApiEquipmentSnapshot(discordUserId: string, characterId: stri
 
 export async function saveManualStalcraftEquipment(
   discordUserId: string,
-  payload: { slot: "weapon" | "armor"; itemName: string; itemRank?: string | null; itemCategory?: string | null },
+  payload: { slot: "weapon" | "armor"; itemName?: string | null; equipmentId?: string | null; itemRank?: string | null; itemCategory?: string | null },
 ) {
   const profile = await getStalcraftProfile(discordUserId);
   if (!profile?.selected_character_id) throw new Error("Сначала выбери STALCRAFT-персонажа.");
 
   const now = new Date().toISOString();
-  const itemName = payload.itemName.trim();
-  if (!itemName) throw new Error("Название предмета обязательно.");
-  if (itemName.length < 2) throw new Error("Название предмета слишком короткое.");
-
-  const resolved = await resolveOfficialStalcraftGear(itemName, payload.slot);
-  const official = resolved.item;
   const supabase = requireSupabase();
 
   const { data: ownedItems, error: ownedItemsError } = await supabase
     .from("sc_equipment")
-    .select("id, slot, item_id, item_name, source, verified_at, raw")
+    .select("id, slot, item_id, item_name, item_rank, item_category, source, verified_at, raw")
     .eq("discord_user_id", discordUserId)
     .eq("character_id", profile.selected_character_id)
     .eq("source", "api");
   if (ownedItemsError) throw ownedItemsError;
 
-  const ownsOfficialItem = (ownedItems || []).some((row: any) => {
-    const raw = row.raw && typeof row.raw === "object" ? row.raw : {};
-    const officialId = cleanOptionalText((raw as Record<string, unknown>).official_item_id);
-    const officialPath = cleanOptionalText((raw as Record<string, unknown>).official_path);
-    return (
-      String(row.slot || "") === official.slot &&
-      (
-        String(row.item_id || "") === official.itemId ||
-        officialId === official.itemId ||
-        officialPath === official.itemPath ||
-        String(row.item_name || "") === official.itemName
-      )
-    );
-  });
+  let official: Awaited<ReturnType<typeof resolveOfficialStalcraftGear>>["item"];
+  let resolvedConfidence: "exact" | "strong" | "fuzzy" = "exact";
+  let requestedInput = cleanOptionalText(payload.itemName);
+  let sourceApiRow: any = null;
 
-  if (!ownsOfficialItem) {
-    throw new Error("Этот предмет не найден у выбранного персонажа в API-снимке. Сначала обнови персонажей или выбери вещь из реально найденного снаряжения.");
+  if (payload.equipmentId) {
+    sourceApiRow = (ownedItems || []).find((row: any) => row.id === payload.equipmentId && row.slot === payload.slot);
+    if (!sourceApiRow) {
+      throw new Error("Выбери предмет из реально найденного API-снаряжения персонажа.");
+    }
+
+    const sourceRaw = sourceApiRow.raw && typeof sourceApiRow.raw === "object" ? sourceApiRow.raw : {};
+    const officialPath = cleanOptionalText((sourceRaw as Record<string, unknown>).official_path);
+    const baseName = cleanOptionalText(sourceApiRow.item_name) || requestedInput;
+    if (!baseName) {
+      throw new Error("Не удалось определить название предмета из API-снимка.");
+    }
+
+    const resolved = await resolveOfficialStalcraftGear(baseName, payload.slot);
+    official = resolved.item;
+    resolvedConfidence = resolved.confidence;
+
+    if (officialPath && official.itemPath !== officialPath) {
+      const resolvedByPath = await resolveOfficialStalcraftGear(cleanOptionalText(sourceApiRow.item_name) || baseName, payload.slot);
+      official = resolvedByPath.item;
+      resolvedConfidence = resolvedByPath.confidence;
+    }
+
+    requestedInput = requestedInput || cleanOptionalText(sourceApiRow.item_name);
+  } else {
+    const itemName = cleanOptionalText(payload.itemName);
+    if (!itemName) throw new Error("Название предмета обязательно.");
+    if (itemName.length < 2) throw new Error("Название предмета слишком короткое.");
+
+    const resolved = await resolveOfficialStalcraftGear(itemName, payload.slot);
+    official = resolved.item;
+    resolvedConfidence = resolved.confidence;
+    requestedInput = itemName;
+
+    const ownsOfficialItem = (ownedItems || []).some((row: any) => {
+      const raw = row.raw && typeof row.raw === "object" ? row.raw : {};
+      const officialId = cleanOptionalText((raw as Record<string, unknown>).official_item_id);
+      const officialPath = cleanOptionalText((raw as Record<string, unknown>).official_path);
+      return (
+        String(row.slot || "") === official.slot &&
+        (
+          String(row.item_id || "") === official.itemId ||
+          officialId === official.itemId ||
+          officialPath === official.itemPath ||
+          String(row.item_name || "") === official.itemName
+        )
+      );
+    });
+
+    if (!ownsOfficialItem) {
+      throw new Error("Этот предмет не найден у выбранного персонажа в API-снимке. Сначала обнови персонажей или выбери вещь из реально найденного снаряжения.");
+    }
   }
 
   const { error: cleanupError } = await supabase
@@ -229,8 +263,9 @@ export async function saveManualStalcraftEquipment(
         raw: {
           source: "site",
           validated_at: now,
-          requested_input: itemName,
-          confidence: resolved.confidence,
+          requested_input: requestedInput,
+          source_equipment_id: payload.equipmentId || sourceApiRow?.id || null,
+          confidence: resolvedConfidence,
           official_item_id: official.itemId,
           official_path: official.itemPath,
           official_name_ru: official.itemNameRu,

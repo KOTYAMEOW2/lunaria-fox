@@ -2482,11 +2482,12 @@ body {
 
 .sc-upload-zone {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px;
-  align-items: center;
-  padding: 18px;
-  margin: 18px 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  min-height: 204px;
+  padding: 24px;
+  margin: 0;
   border-radius: 22px;
   border: 1px dashed rgba(155, 124, 255, 0.34);
   background:
@@ -2502,16 +2503,18 @@ body {
 
 .sc-upload-zone strong {
   color: #fff8e6;
-  font-size: 1.04rem;
+  font-size: 1.34rem;
 }
 
 .sc-upload-zone span {
   color: var(--text-muted);
   line-height: 1.5;
+  max-width: 34ch;
 }
 
 .sc-upload-zone input[type="file"] {
-  max-width: 280px;
+  width: 100%;
+  max-width: none;
   color: var(--text-muted);
 }
 
@@ -2519,7 +2522,7 @@ body {
   margin-right: 12px;
   border: 1px solid rgba(229, 221, 255, 0.18);
   border-radius: 999px;
-  padding: 10px 14px;
+  padding: 13px 18px;
   background: linear-gradient(135deg, #9b7cff, #ffd071);
   color: #090711;
   font-weight: 800;
@@ -2554,7 +2557,7 @@ body {
 }
 
 .sc-tabs-workbench {
-  grid-template-columns: minmax(320px, 0.86fr) minmax(0, 1.14fr);
+  grid-template-columns: 1fr;
   align-items: start;
 }
 

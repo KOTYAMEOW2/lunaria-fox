@@ -1703,20 +1703,21 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
       }
 
       const normalized = sanitizeCwRows(bestRows, knownRosterNames);
-      setOcrPreviewRows(normalized.rows);
-      setOcrNotes([...normalized.notes, ...aiNotes]);
+      const finalRows = normalized.rows.length > 0 ? normalized.rows : bestRows;
+      const finalNotes = normalized.rows.length > 0
+        ? [...normalized.notes, ...aiNotes]
+        : ["Санитизация отсеяла все строки, поэтому показан сырой OCR-результат. Проверь таблицу вручную.", ...aiNotes];
+
+      setOcrPreviewRows(finalRows);
+      setOcrNotes(finalNotes);
       setOcrSource(bestLabel || "не определён");
-      if (normalized.rows.length > 0) {
-        setResultText(rowsToText(normalized.rows));
-      } else {
-        setResultText("");
-      }
+      setResultText(finalRows.length > 0 ? rowsToText(finalRows) : "");
       setOcrStatus(
-        normalized.rows.length
-          ? `Распознано строк: ${normalized.rows.length}. Лучший вариант: ${bestLabel}. Проверь строки ниже и нажми "Загрузить табы".`
+        finalRows.length
+          ? `Распознано строк: ${finalRows.length}. Лучший вариант: ${bestLabel}. Проверь строки ниже и нажми "Загрузить табы".`
           : `OCR не нашёл строки статистики. Лучший вариант: ${bestLabel || "нет"} (${bestTextLength} символов). Попробуй скрин без затемнения/движения или вставь строки вручную.`,
       );
-      setStatus(normalized.rows.length ? "OCR готов." : "OCR без строк.");
+      setStatus(finalRows.length ? "OCR готов." : "OCR без строк.");
     } catch (error) {
       setOcrStatus(error instanceof Error ? error.message : "OCR failed.");
       setStatus("OCR ошибка.");
@@ -2020,25 +2021,20 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
               <div className="sc-table-card sc-tabs-editor-card">
                 <div className="dashboard-head">
                   <div>
-                    <span className="eyebrow sc-eyebrow">Manual check</span>
-                    <h3>Распознанные или ручные строки</h3>
+                    <span className="eyebrow sc-eyebrow">Table editor</span>
+                    <h3>Готовая таблица для проверки и правки</h3>
                   </div>
                   <span className="badge muted">{parsedRows.length} row(s)</span>
                 </div>
 
                 <p className="muted">
-                  Если OCR ошибся, поправь строки вручную. Формат строки: <code>ник;У;С;П;казна;счёт</code> или <code>ник;матчей;У;С;П;казна;счёт</code>.
+                  OCR сразу переносит строки в редактор ниже. Здесь можно поправить ники и числа без лишнего промежуточного буфера.
                 </p>
-
-                <div className="field" style={{ marginTop: 12 }}>
-                  <label>Редактор строк</label>
-                  <textarea value={resultText} onChange={(event) => setResultText(event.target.value)} placeholder="MihaiGray;4;12;4;64081;3831" />
-                </div>
 
                 <div className="sc-manual-editor">
                   <div className="dashboard-head sc-manual-editor-head">
                     <div>
-                      <span className="eyebrow sc-eyebrow">Table editor</span>
+                      <span className="eyebrow sc-eyebrow">Rows</span>
                       <h3>Быстрая правка готовой таблицы</h3>
                     </div>
                     <button className="ghost-button" onClick={addManualRow} type="button">Добавить строку</button>
