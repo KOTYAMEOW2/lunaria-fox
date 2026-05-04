@@ -888,6 +888,10 @@ function rowsToText(rows: CwResultRow[]) {
     .join("\n");
 }
 
+function syncManualRows(rows: CwResultRow[], setResultText: (value: string) => void) {
+  setResultText(rows.length ? rowsToText(rows) : "");
+}
+
 function aggregateRows(rows: CwResultRow[]) {
   const byName = new Map<string, CwResultRow & { tabs_count: number }>();
 
@@ -1106,7 +1110,8 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
       total: rows.length,
     };
   }, [data.attendance]);
-  const parsedRows = useMemo(() => sanitizeRows(parseManualResultRows(resultText)).rows, [resultText]);
+  const manualRows = useMemo(() => parseManualResultRows(resultText), [resultText]);
+  const parsedRows = useMemo(() => sanitizeRows(manualRows).rows, [manualRows]);
   const totalRows = useMemo(() => aggregateRows(resultRows), [resultRows]);
   const tabsSummary = useMemo(() => {
     const previewScore = ocrPreviewRows.reduce((sum, row) => sum + toInt(row.score), 0);
@@ -1551,6 +1556,44 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
     }
   }
 
+  function patchManualRow(index: number, patch: Partial<CwResultRow>) {
+    const nextRows = manualRows.map((row, rowIndex) => {
+      if (rowIndex !== index) return row;
+      return {
+        ...row,
+        ...patch,
+        character_name: String((patch.character_name ?? row.character_name) || "").trim(),
+        matches_count: Math.max(1, toInt(patch.matches_count ?? row.matches_count)),
+        kills: Math.max(0, toInt(patch.kills ?? row.kills)),
+        deaths: Math.max(0, toInt(patch.deaths ?? row.deaths)),
+        assists: Math.max(0, toInt(patch.assists ?? row.assists)),
+        treasury_spent: Math.max(0, toInt(patch.treasury_spent ?? row.treasury_spent)),
+        score: Math.max(0, toInt(patch.score ?? row.score)),
+      };
+    });
+    syncManualRows(nextRows, setResultText);
+  }
+
+  function removeManualRow(index: number) {
+    const nextRows = manualRows.filter((_, rowIndex) => rowIndex !== index);
+    syncManualRows(nextRows, setResultText);
+  }
+
+  function addManualRow() {
+    syncManualRows([
+      ...manualRows,
+      {
+        character_name: "",
+        matches_count: 1,
+        kills: 0,
+        deaths: 0,
+        assists: 0,
+        treasury_spent: 0,
+        score: 0,
+      },
+    ], setResultText);
+  }
+
   return (
     <div className="dashboard-grid sc-dashboard-grid">
       <aside className="dashboard-sidebar panel sc-dashboard-sidebar">
@@ -1823,6 +1866,77 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                 <div className="field" style={{ marginTop: 12 }}>
                   <label>Редактор строк</label>
                   <textarea value={resultText} onChange={(event) => setResultText(event.target.value)} placeholder="MihaiGray;4;12;4;64081;3831" />
+                </div>
+
+                <div className="sc-manual-editor">
+                  <div className="dashboard-head sc-manual-editor-head">
+                    <div>
+                      <span className="eyebrow sc-eyebrow">Table editor</span>
+                      <h3>Быстрая правка готовой таблицы</h3>
+                    </div>
+                    <button className="ghost-button" onClick={addManualRow} type="button">Добавить строку</button>
+                  </div>
+
+                  {manualRows.length > 0 ? (
+                    <div className="sc-manual-editor-wrap">
+                      <table className="sc-manual-editor-table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>Игрок</th>
+                            <th>Матчей</th>
+                            <th>У</th>
+                            <th>С</th>
+                            <th>П</th>
+                            <th>Казна</th>
+                            <th>Счёт</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {manualRows.map((row, index) => (
+                            <tr key={`manual-row-${index}`}>
+                              <td>{index + 1}</td>
+                              <td>
+                                <input
+                                  className="sc-manual-input sc-manual-name"
+                                  onChange={(event) => patchManualRow(index, { character_name: event.target.value })}
+                                  placeholder="Ник игрока"
+                                  type="text"
+                                  value={row.character_name}
+                                />
+                              </td>
+                              <td>
+                                <input className="sc-manual-input" min={1} onChange={(event) => patchManualRow(index, { matches_count: Number(event.target.value || 1) })} type="number" value={row.matches_count} />
+                              </td>
+                              <td>
+                                <input className="sc-manual-input" min={0} onChange={(event) => patchManualRow(index, { kills: Number(event.target.value || 0) })} type="number" value={row.kills} />
+                              </td>
+                              <td>
+                                <input className="sc-manual-input" min={0} onChange={(event) => patchManualRow(index, { deaths: Number(event.target.value || 0) })} type="number" value={row.deaths} />
+                              </td>
+                              <td>
+                                <input className="sc-manual-input" min={0} onChange={(event) => patchManualRow(index, { assists: Number(event.target.value || 0) })} type="number" value={row.assists} />
+                              </td>
+                              <td>
+                                <input className="sc-manual-input" min={0} onChange={(event) => patchManualRow(index, { treasury_spent: Number(event.target.value || 0) })} type="number" value={row.treasury_spent} />
+                              </td>
+                              <td>
+                                <input className="sc-manual-input" min={0} onChange={(event) => patchManualRow(index, { score: Number(event.target.value || 0) })} type="number" value={row.score} />
+                              </td>
+                              <td>
+                                <button className="ghost-button sc-danger-button" onClick={() => removeManualRow(index)} type="button">Убрать</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="panel-note" style={{ marginTop: 12 }}>
+                      Здесь появятся строки из OCR или ручного буфера. Можно сразу добавить свою строку и собрать таблицу вручную.
+                    </div>
+                  )}
                 </div>
 
                 {ocrNotes.length > 0 ? (
