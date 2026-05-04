@@ -2860,6 +2860,35 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.sc-gear-meta-row,
+.sc-gear-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sc-gear-meta-row {
+  margin-top: 4px;
+}
+
+.sc-gear-actions {
+  margin-top: 8px;
+}
+
+.sc-gear-delete {
+  padding: 10px 14px;
+}
+
+.inline-link {
+  color: var(--primary-strong);
+  text-decoration: none;
+}
+
+.inline-link:hover {
+  text-decoration: underline;
+}
+
 .sc-squad-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

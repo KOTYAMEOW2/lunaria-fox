@@ -5,6 +5,11 @@ import {
   fetchStalcraftCharacters,
   refreshStalcraftToken,
 } from "@/lib/stalcraft/api";
+import { extractStalcraftEquipmentFromPayload } from "@/lib/stalcraft/equipment-extractor";
+import {
+  buildStalcraftWikiSearchUrl,
+  resolveOfficialStalcraftGear,
+} from "@/lib/stalcraft/item-database";
 import type {
   StalcraftCharacterCacheRow,
   StalcraftCommunityRow,
@@ -14,43 +19,6 @@ import type {
 } from "@/lib/stalcraft/types";
 
 export const STALCRAFT_REGIONS: StalcraftRegion[] = ["RU", "EU", "NA", "SEA"];
-
-// ─── Known weapon & armor names for basic validation ──────────────────────────
-
-const WEAPON_KEYWORDS = [
-  "fn", "f2000", "fiveseven", "famas", "scar", "ak", "m4", "mp5", "g36",
-  "вальмет", "всс", "винторез", "алекс", "тктор", "тоскан", "рим", "сиг",
-  "ремингтон", "мосин", "свд", "свч", "тгб", "абакан", "печенег", "рот",
-  "гатлинг", "миниган", "м134", "спг", "м72", "рpg", "rgd", "м203",
-  "бм18", "д10", "д44", "мушка", "натя", "снайп", " снайпер", "автомат",
-  "пистолет", "пист", "пулемет", "дробовик", "карабин", "винтовк",
-];
-
-const ARMOR_KEYWORDS = [
-  "сатурн", "юпитер", "марс", "венера", "меркурий", "нептун", "уран", "плутон",
-  "центурион", "танк", "икар", "зевс", "афина", "гефест", "кентавр", "гидра",
-  "болот", "ренегат", "отступник", "сталкер", "тури", "снаряжен",
-  "бронежилет", "куртк", "костюм", "экзо", "натов", "бтт", "бтк",
-  "штурмов", "развед", "медик", "силов", "тяжел", "легк",
-];
-
-const SLOT_KEYWORDS: Record<string, string[]> = {
-  weapon: WEAPON_KEYWORDS,
-  armor: ARMOR_KEYWORDS,
-};
-
-function suggestSlot(input: string): "weapon" | "armor" | null {
-  const lower = input.toLowerCase();
-  const wScore = WEAPON_KEYWORDS.filter((k) => lower.includes(k)).length;
-  const aScore = ARMOR_KEYWORDS.filter((k) => lower.includes(k)).length;
-  if (wScore === 0 && aScore === 0) return null;
-  return wScore >= aScore ? "weapon" : "armor";
-}
-
-export function guessEquipmentSlot(input: string): "weapon" | "armor" | null {
-  if (!input || input.trim().length < 2) return null;
-  return suggestSlot(input.trim());
-}
 
 // ─── Friends extraction ───────────────────────────────────────────────────────
 
@@ -142,7 +110,53 @@ async function syncRegisteredFriends(discordUserId: string, rows: StalcraftChara
   await supabase.from("sc_friends").upsert(payload, { onConflict: "discord_user_id,friend_discord_user_id" });
 }
 
-// ─── Equipment with wiki validation ──────────────────────────────────────────
+// ─── Equipment with official DB validation ───────────────────────────────────
+
+async function syncApiEquipmentSnapshot(discordUserId: string, characterId: string, payload: unknown) {
+  const equipment = await extractStalcraftEquipmentFromPayload(payload);
+  if (equipment.length === 0) return [];
+
+  const now = new Date().toISOString();
+  const supabase = requireSupabase();
+
+  const rows = equipment.map((item) => ({
+    discord_user_id: discordUserId,
+    character_id: characterId,
+    slot: item.slot,
+    item_id: item.verifiedItem?.itemId || item.itemId,
+    item_name: item.verifiedItem?.itemName || item.itemName,
+    item_rank: item.verifiedItem?.rank || item.itemRank,
+    item_level: item.verifiedItem?.rank || item.itemRank || "master",
+    item_category: item.verifiedItem?.category || item.itemCategory || item.slot,
+    source: "api",
+    verified_by: item.verifiedItem ? "official-database" : null,
+    verified_at: item.verifiedItem ? now : null,
+    raw: {
+      source: "oauth-api",
+      synced_at: now,
+      official_path: item.verifiedItem?.itemPath || null,
+      wiki_url: item.verifiedItem?.wikiUrl || buildStalcraftWikiSearchUrl(item.itemName),
+      payload: item.raw,
+    },
+    updated_at: now,
+  }));
+
+  const { error: cleanupError } = await supabase
+    .from("sc_equipment")
+    .delete()
+    .eq("discord_user_id", discordUserId)
+    .eq("character_id", characterId)
+    .eq("source", "api");
+  if (cleanupError) throw cleanupError;
+
+  const { data, error } = await supabase
+    .from("sc_equipment")
+    .upsert(rows, { onConflict: "discord_user_id,character_id,slot,item_id" })
+    .select("*");
+  if (error) throw error;
+
+  return data || [];
+}
 
 export async function saveManualStalcraftEquipment(
   discordUserId: string,
@@ -156,27 +170,45 @@ export async function saveManualStalcraftEquipment(
   if (!itemName) throw new Error("Название предмета обязательно.");
   if (itemName.length < 2) throw new Error("Название предмета слишком короткое.");
 
-  // Validate against known patterns
-  const guessedSlot = guessEquipmentSlot(itemName);
-  if (guessedSlot && guessedSlot !== payload.slot) {
-    // Silently correct the slot based on content
-    payload = { ...payload, slot: guessedSlot };
-  }
+  const resolved = await resolveOfficialStalcraftGear(itemName, payload.slot);
+  const official = resolved.item;
+  const supabase = requireSupabase();
 
-  const { data, error } = await requireSupabase()
+  const { error: cleanupError } = await supabase
+    .from("sc_equipment")
+    .delete()
+    .eq("discord_user_id", discordUserId)
+    .eq("character_id", profile.selected_character_id)
+    .eq("slot", official.slot)
+    .eq("source", "manual");
+  if (cleanupError) throw cleanupError;
+
+  const { data, error } = await supabase
     .from("sc_equipment")
     .upsert(
       {
         discord_user_id: discordUserId,
         character_id: profile.selected_character_id,
-        slot: payload.slot,
-        item_id: `manual-${payload.slot}`,
-        item_name: itemName,
-        item_rank: payload.itemRank?.trim() || "master",
-        item_level: "master",
-        item_category: payload.itemCategory?.trim() || payload.slot,
+        slot: official.slot,
+        item_id: `manual-${official.itemId}`,
+        item_name: official.itemName,
+        item_rank: official.rank || payload.itemRank?.trim() || "master",
+        item_level: official.rank || payload.itemRank?.trim() || "master",
+        item_category: official.category || payload.itemCategory?.trim() || official.slot,
         source: "manual",
-        raw: { source: "site", validated_at: now },
+        verified_by: "official-database",
+        verified_at: now,
+        raw: {
+          source: "site",
+          validated_at: now,
+          requested_input: itemName,
+          confidence: resolved.confidence,
+          official_item_id: official.itemId,
+          official_path: official.itemPath,
+          official_name_ru: official.itemNameRu,
+          official_name_en: official.itemNameEn,
+          wiki_url: official.wikiUrl,
+        },
         updated_at: now,
       },
       { onConflict: "discord_user_id,character_id,slot,item_id" },
@@ -405,6 +437,17 @@ export async function syncStalcraftCharacters(discordUserId: string) {
       console.warn("[stalcraft] registered friends sync skipped:", e instanceof Error ? e.message : e);
     });
     savedCharacterRows = writableCharacterRows;
+
+    if (profile.selected_character_id) {
+      const selectedRow = writableCharacterRows.find(
+        (row) => row.character_id === profile.selected_character_id && row.region === profile.selected_region,
+      );
+      if (selectedRow) {
+        await syncApiEquipmentSnapshot(discordUserId, selectedRow.character_id, selectedRow.raw).catch((caught) => {
+          console.warn("[stalcraft] equipment sync skipped:", caught instanceof Error ? caught.message : caught);
+        });
+      }
+    }
   }
 
   return savedCharacterRows.length > 0 ? savedCharacterRows : characterRows;
@@ -451,6 +494,9 @@ export async function selectStalcraftCharacter(discordUserId: string, region: St
     .eq("discord_user_id", discordUserId);
 
   if (error) throw error;
+  await syncApiEquipmentSnapshot(discordUserId, row.character_id, row.raw).catch((caught) => {
+    console.warn("[stalcraft] equipment sync on character select skipped:", caught instanceof Error ? caught.message : caught);
+  });
   return row;
 }
 
@@ -575,6 +621,21 @@ export async function listStalcraftEquipment(discordUserId: string, characterId?
   const { data, error } = await query;
   if (error) throw error;
   return data || [];
+}
+
+export async function deleteStalcraftEquipment(discordUserId: string, equipmentId: string) {
+  const supabase = requireSupabase();
+  const { data: deleted, error } = await supabase
+    .from("sc_equipment")
+    .delete()
+    .eq("discord_user_id", discordUserId)
+    .eq("id", equipmentId)
+    .select("id, slot, source")
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!deleted) throw new Error("Снаряжение не найдено или уже удалено.");
+  return deleted;
 }
 
 export async function listEnabledStalcraftCommunities() {

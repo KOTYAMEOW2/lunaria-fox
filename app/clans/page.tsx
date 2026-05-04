@@ -36,7 +36,7 @@ export default async function ClanRatingPage() {
           <p>
             Таблица собирается по регионам RU, EU, NA и SEA. Основной показатель ранжирования — clan level points
             из официального STALCRAFT API; если API недоступен, сайт показывает локальную статистику из Supabase.
-            При успешной загрузке рейтинг также кэшируется в таблицу <code>sc_clans</code>.
+            Уровень клана в игре сейчас фактически находится в диапазоне от 1 до 3. При успешной загрузке рейтинг также кэшируется в таблицу <code>sc_clans</code>.
           </p>
           <div className="sc-overview-actions">
             <Link className="primary-button sc-primary" href="/stalcraft">Привязать профиль</Link>
@@ -89,7 +89,7 @@ export default async function ClanRatingPage() {
                   <th>Клан</th>
                   <th>Регион</th>
                   <th>Уровень</th>
-                  <th>Очки уровня</th>
+                  <th>Очки уровня (LP)</th>
                   <th>Участники</th>
                   <th>Лидер</th>
                   <th>Обновлено</th>

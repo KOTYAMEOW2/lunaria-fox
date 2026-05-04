@@ -68,6 +68,12 @@ function numberValue(value: unknown) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function normalizeClanLevel(value: unknown) {
+  const raw = Math.floor(numberValue(value));
+  if (raw <= 0) return 0;
+  return Math.min(3, raw);
+}
+
 function maxPerRegion() {
   const configured = Number(process.env.STALCRAFT_CLAN_RATING_MAX_PER_REGION || DEFAULT_MAX_PER_REGION);
   if (!Number.isFinite(configured) || configured <= 0) return DEFAULT_MAX_PER_REGION;
@@ -135,7 +141,7 @@ async function fetchOfficialClanRatings(): Promise<ClanRatingRow[]> {
         for (const clan of page.data) {
           const externalClanId = String(clan.id || "").trim();
           const name = String(clan.name || externalClanId || "Unknown clan").trim();
-          const level = numberValue(clan.level);
+          const level = normalizeClanLevel(clan.level);
           const levelPoints = numberValue(clan.levelPoints);
           const memberCount = numberValue(clan.memberCount);
           rows.push({
@@ -209,7 +215,7 @@ async function fetchLocalClanRatings(): Promise<ClanRatingRow[]> {
     const clanId = String(clan.clan_id || "");
     const audit = auditScores.get(clanId);
     const memberCount = numberValue(clan.clan_member_count) || memberCounts.get(clanId) || 0;
-    const level = numberValue(clan.clan_level);
+    const level = normalizeClanLevel(clan.clan_level);
     const levelPoints = numberValue(clan.clan_level_points);
     const persistedScore = numberValue(clan.rating_score);
     return {

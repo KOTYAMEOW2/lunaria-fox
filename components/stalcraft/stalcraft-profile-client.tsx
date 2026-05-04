@@ -3,18 +3,23 @@
 import { useState, startTransition } from "react";
 import type { StalcraftCharacterCacheRow, StalcraftProfileRow } from "@/lib/stalcraft/types";
 
+type EquipmentRow = {
+  id: string;
+  slot: string;
+  item_name: string;
+  item_rank: string | null;
+  item_category: string | null;
+  source: string | null;
+  verified_by?: string | null;
+  verified_at?: string | null;
+  raw?: Record<string, unknown> | null;
+  updated_at: string | null;
+};
+
 type Props = {
   profile: StalcraftProfileRow | null;
   characters: StalcraftCharacterCacheRow[];
-  equipment: Array<{
-    id: string;
-    slot: string;
-    item_name: string;
-    item_rank: string | null;
-    item_category: string | null;
-    source: string | null;
-    updated_at: string | null;
-  }>;
+  equipment: EquipmentRow[];
   friends: Array<{
     friend_discord_user_id: string;
     game_friend_name: string | null;
@@ -29,6 +34,13 @@ type Props = {
     } | null;
   }>;
 };
+
+function getEquipmentWikiUrl(item: EquipmentRow) {
+  const raw = item.raw;
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw.wiki_url;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
 
 export function StalcraftProfileClient({ profile, characters, equipment, friends }: Props) {
   const [status, setStatus] = useState("");
@@ -54,10 +66,10 @@ export function StalcraftProfileClient({ profile, characters, equipment, friends
   }
 
   async function syncCharacters() {
-    setStatus("Обновляю список персонажей...");
+    setStatus("Обновляю персонажей и снаряжение...");
     const response = await fetch("/api/stalcraft/characters/sync", { method: "POST" });
     const payload = await response.json().catch(() => ({}));
-    setStatus(response.ok ? "Список обновлён." : payload.error || "Ошибка синхронизации.");
+    setStatus(response.ok ? "Персонажи и снаряжение обновлены." : payload.error || "Ошибка синхронизации.");
     if (response.ok) startTransition(() => window.location.reload());
   }
 
@@ -92,8 +104,32 @@ export function StalcraftProfileClient({ profile, characters, equipment, friends
       setStatus(payload.error || "Ошибка сохранения снаряжения.");
       return;
     }
-    setEquipmentRows((current) => [payload.equipment, ...current.filter((item) => item.slot !== slot)]);
-    setStatus("Снаряжение сохранено.");
+    setEquipmentRows((current) => [
+      payload.equipment,
+      ...current.filter((item) => item.id !== payload.equipment.id && !(item.slot === payload.equipment.slot && item.source === "manual")),
+    ]);
+    setGearForm((current) => ({ ...current, [slot]: payload.equipment.item_name }));
+    setStatus(`Снаряжение сохранено: ${payload.equipment.item_name}.`);
+  }
+
+  async function deleteGear(item: EquipmentRow) {
+    setStatus("Удаляю снаряжение...");
+    const response = await fetch("/api/stalcraft/equipment", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ equipmentId: item.id }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus(payload.error || "Ошибка удаления снаряжения.");
+      return;
+    }
+
+    setEquipmentRows((current) => current.filter((row) => row.id !== item.id));
+    if (item.source === "manual" && (item.slot === "weapon" || item.slot === "armor")) {
+      setGearForm((current) => ({ ...current, [item.slot]: "" }));
+    }
+    setStatus(`Снаряжение удалено: ${item.item_name}.`);
   }
 
   return (
@@ -141,7 +177,10 @@ export function StalcraftProfileClient({ profile, characters, equipment, friends
             <div>
               <span className="eyebrow sc-eyebrow">Readiness gear</span>
               <h3>Master-снаряжение для КВ</h3>
-              <p className="muted">Если EXBO API не отдаёт инвентарь, укажи оружие и броню вручную. Бот покажет это в `/sc-profile`.</p>
+              <p className="muted">
+                Если STALCRAFT API не подтянул экипировку автоматически, укажи оружие и броню вручную.
+                Ввод сверяется с официальной базой предметов STALCRAFT, а карточка даёт быстрый переход на stalcraft.wiki.
+              </p>
             </div>
             <span className="badge muted">{equipmentRows.length} item(s)</span>
           </div>
@@ -166,6 +205,19 @@ export function StalcraftProfileClient({ profile, characters, equipment, friends
                 </div>
                 <strong>{item.item_name}</strong>
                 <p>{item.item_rank || "master"} · {item.item_category || item.slot}</p>
+                <div className="sc-gear-meta-row">
+                  {item.verified_at ? <span className="badge muted">verified</span> : <span className="badge muted">unverified</span>}
+                  {getEquipmentWikiUrl(item) ? (
+                    <a className="inline-link" href={getEquipmentWikiUrl(item) || "#"} target="_blank" rel="noreferrer">
+                      Открыть на stalcraft.wiki
+                    </a>
+                  ) : null}
+                </div>
+                <div className="sc-gear-actions">
+                  <button className="ghost-button sc-gear-delete" onClick={() => deleteGear(item)} type="button">
+                    Удалить
+                  </button>
+                </div>
               </article>
             )) : <p className="panel-note">Снаряжение пока не указано.</p>}
           </div>

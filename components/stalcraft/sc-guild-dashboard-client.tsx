@@ -233,8 +233,10 @@ type OcrCanvasMode = "threshold" | "contrast" | "whiteText" | "whiteTextSoft";
 const STALCRAFT_FIXED_ROW_CROPS = [
   { label: "stalcraft fixed tight", x: 0.335, y: 0.19, width: 0.605, height: 0.23 },
   { label: "stalcraft fixed relaxed", x: 0.325, y: 0.18, width: 0.62, height: 0.245 },
+  { label: "stalcraft tall table", x: 0.305, y: 0.035, width: 0.685, height: 0.555 },
+  { label: "stalcraft tall relaxed", x: 0.295, y: 0.03, width: 0.695, height: 0.575 },
 ] as const;
-const STALCRAFT_AI_TABLE_CROP = { x: 0.315, y: 0.135, width: 0.645, height: 0.29 } as const;
+const STALCRAFT_AI_TABLE_CROP = { x: 0.295, y: 0.03, width: 0.695, height: 0.575 } as const;
 
 const STALCRAFT_FIXED_COLUMN_LAYOUTS = [
   {
@@ -270,12 +272,37 @@ const STALCRAFT_FIXED_COLUMN_LAYOUTS = [
       { key: "score", x: 0.852, width: 0.07, kind: "number" },
     ],
   },
+  {
+    label: "tall compact",
+    columns: [
+      { key: "name", x: 0.028, width: 0.445, kind: "name" },
+      { key: "kills", x: 0.488, width: 0.055, kind: "number" },
+      { key: "deaths", x: 0.568, width: 0.055, kind: "number" },
+      { key: "assists", x: 0.648, width: 0.055, kind: "number" },
+      { key: "treasury", x: 0.736, width: 0.098, kind: "number" },
+      { key: "score", x: 0.846, width: 0.074, kind: "number" },
+    ],
+  },
+  {
+    label: "tall wide name",
+    columns: [
+      { key: "name", x: 0.022, width: 0.468, kind: "name" },
+      { key: "kills", x: 0.502, width: 0.05, kind: "number" },
+      { key: "deaths", x: 0.58, width: 0.05, kind: "number" },
+      { key: "assists", x: 0.658, width: 0.05, kind: "number" },
+      { key: "treasury", x: 0.742, width: 0.094, kind: "number" },
+      { key: "score", x: 0.848, width: 0.072, kind: "number" },
+    ],
+  },
 ] as const;
 
 const STALCRAFT_FIXED_ROW_LAYOUTS = [
   { label: "10 rows", top: 0.018, height: 0.95, rows: 10 },
   { label: "10 rows lower", top: 0.03, height: 0.94, rows: 10 },
   { label: "11 rows", top: 0.01, height: 0.96, rows: 11 },
+  { label: "16 rows", top: 0.012, height: 0.968, rows: 16 },
+  { label: "17 rows", top: 0.012, height: 0.968, rows: 17 },
+  { label: "18 rows", top: 0.012, height: 0.968, rows: 18 },
 ] as const;
 
 /**
@@ -424,9 +451,9 @@ function scoreRecognizedRows(rows: CwResultRow[]) {
 function scoreRowQuality(row: CwResultRow) {
   let score = 0;
   if (row.character_name.trim().length >= 3) score += 15;
-  if (row.kills >= 0 && row.kills <= 20) score += 20; else score -= 20;
-  if (row.deaths >= 0 && row.deaths <= 20) score += 20; else score -= 20;
-  if (row.assists >= 0 && row.assists <= 20) score += 20; else score -= 20;
+  if (row.kills >= 0 && row.kills <= 45) score += 20; else score -= 20;
+  if (row.deaths >= 0 && row.deaths <= 30) score += 20; else score -= 20;
+  if (row.assists >= 0 && row.assists <= 30) score += 20; else score -= 20;
   if (row.treasury_spent >= 100 && row.treasury_spent <= 100_000) score += 20;
   else if (row.treasury_spent > 0 && row.treasury_spent <= 250_000) score += 8;
   else score -= 12;
@@ -438,6 +465,12 @@ function scoreRowQuality(row: CwResultRow) {
 
   const kd = row.deaths === 0 ? row.kills : row.kills / Math.max(1, row.deaths);
   if (kd <= 8) score += 8; else score -= 10;
+  if (row.kills >= 6 && row.deaths === 0) score -= 22;
+  if (row.kills >= 6 && row.assists === 0) score -= 12;
+  if (row.treasury_spent >= 5000 && row.score < 200) score -= 16;
+  if (row.treasury_spent >= 5000 && row.deaths === 0 && row.assists === 0) score -= 20;
+  if (row.deaths > 0) score += 6;
+  if (row.assists > 0) score += 4;
   if (/[0-9]$/.test(row.character_name.trim())) score -= 8;
   return score;
 }
@@ -447,7 +480,9 @@ function scoreCandidateQuality(rows: CwResultRow[]) {
   const rowScores = rows.reduce((sum, row) => sum + scoreRowQuality(row), 0);
   const zeroScores = rows.filter((row) => row.score === 0 && row.treasury_spent > 0).length;
   const hugeTreasury = rows.filter((row) => row.treasury_spent > 120_000).length;
-  return rowScores + rows.length * 30 - zeroScores * 25 - hugeTreasury * 12;
+  const flatRows = rows.filter((row) => row.kills > 0 && row.deaths === 0 && row.assists === 0).length;
+  const suspiciousInfKd = rows.filter((row) => row.deaths === 0 && row.kills >= 4).length;
+  return rowScores + rows.length * 30 - zeroScores * 25 - hugeTreasury * 12 - flatRows * 18 - suspiciousInfKd * 14;
 }
 
 function pickBetterRows(currentRows: CwResultRow[], candidateRows: CwResultRow[]) {
@@ -708,7 +743,7 @@ async function ocrStalcraftFixedRows(
             bestScore = score;
           }
 
-          if (normalized.length >= 8 && score >= bestScore) {
+          if (normalized.length >= 12 && score >= bestScore) {
             return { rows: normalized, label: `${crop.label} · ${mode} · ${layout.label} · fixed rows` };
           }
         }
@@ -785,7 +820,7 @@ async function ocrStalcraftFixedLayout(
             bestLabel = `${crop.label} · ${mode} · ${columnLayout.label} · fixed columns`;
             bestScore = score;
           }
-          if (normalized.length >= 8 && score >= bestScore) {
+          if (normalized.length >= 12 && score >= bestScore) {
             return { rows: normalized, label: `${crop.label} · ${mode} · ${columnLayout.label} · fixed columns` };
           }
         }
@@ -795,7 +830,7 @@ async function ocrStalcraftFixedLayout(
     }
   }
 
-  if (bestRows.length < 7) {
+  if (bestRows.length < 12) {
     const rowBased = await ocrStalcraftFixedRows(imageSource, imageWidth, imageHeight, worker, onStatus, knownNames);
     if (rowBased?.rows?.length) {
       const rowScore = scoreRecognizedRows(rowBased.rows);
@@ -1605,7 +1640,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
               bestLabel = `${crop.label}:колонки`;
               bestTextLength = textLen;
             }
-            if (colRows.length >= 8) break;
+            if (colRows.length >= 12) break;
           }
 
           // Step 2: Fall back to line-by-line OCR + parsing
@@ -1621,12 +1656,12 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
                 bestLabel = `${crop.label} · ${mode}`;
                 bestTextLength = text.length;
               }
-              if (rows.length >= 8) break;
+              if (rows.length >= 12) break;
             } finally {
               canvas.remove();
             }
           }
-          if (bestRows.length >= 8) break;
+          if (bestRows.length >= 12) break;
         }
       } finally {
         image.close?.();
