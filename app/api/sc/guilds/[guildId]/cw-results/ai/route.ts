@@ -84,7 +84,7 @@ async function readOpenAiRows(imageDataUrl: string, ocrRows: z.infer<typeof rowS
         {
           role: "system",
           content:
-            "You extract STALCRAFT:X clan war scoreboard rows. Return only visible player rows. Columns are player nickname, kills/У, deaths/С, assists/П, treasury/Казна, score/Счет/Счёт. Ignore rank, team panels, headings and totals. If a value is unreadable, omit that row instead of guessing.",
+            "You extract STALCRAFT:X clan war scoreboard rows. Return only visible player rows. Columns are player nickname, kills/У, deaths/С, assists/П, treasury/Казна, score/Счет/Счёт. Ignore rank, team panels, headings and totals. Watch for OCR drafts where kills were glued to the nickname and the remaining numeric columns shifted right by one. If a value is unreadable, omit that row instead of guessing.",
         },
         {
           role: "user",
@@ -95,6 +95,7 @@ async function readOpenAiRows(imageDataUrl: string, ocrRows: z.infer<typeof rowS
                 "Read this CW tab screenshot and correct OCR if needed.",
                 "Return JSON rows with: character_name, matches_count, kills, deaths, assists, treasury_spent, score.",
                 "matches_count is 1 for a single screenshot unless OCR rows already contain accumulated matches.",
+                "Important: if OCR draft shows score=0 for many rows, nickname with trailing single digit/letter, and treasury/score shifted, fix the column shift instead of keeping zeros.",
                 `OCR draft rows: ${JSON.stringify(ocrRows.slice(0, 80))}`,
               ].join("\n"),
             },

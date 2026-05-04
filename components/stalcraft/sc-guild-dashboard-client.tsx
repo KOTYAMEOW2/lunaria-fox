@@ -82,6 +82,51 @@ function rowSignalScore(row: CwResultRow) {
   );
 }
 
+function extractTrailingStandaloneStat(name: string) {
+  const match = String(name || "").match(/^(.*?)(?:\s+)([\dOoОоIlІ|]{1,2})$/u);
+  if (!match) return null;
+  const tail = normalizeOcrNumberToken(match[2] || "");
+  if (!tail && !/[OoОо]/.test(match[2] || "")) return null;
+
+  return {
+    character_name: match[1].trim(),
+    value: Math.max(0, toInt(tail || "0")),
+  };
+}
+
+function repairShiftedStalcraftRows(rows: CwResultRow[]) {
+  if (rows.length < 4) return { rows, repaired: false };
+
+  const suspiciousRows = rows.filter((row) =>
+    row.score === 0
+    && row.treasury_spent > 0
+    && row.assists >= 50
+    && Boolean(extractTrailingStandaloneStat(row.character_name)),
+  );
+
+  if (suspiciousRows.length < Math.max(3, Math.ceil(rows.length * 0.45))) {
+    return { rows, repaired: false };
+  }
+
+  return {
+    repaired: true,
+    rows: rows.map((row) => {
+      const trailing = extractTrailingStandaloneStat(row.character_name);
+      if (!trailing || row.score !== 0 || row.treasury_spent <= 0) return row;
+
+      return {
+        ...row,
+        character_name: trailing.character_name || row.character_name,
+        kills: trailing.value,
+        deaths: Math.max(0, toInt(row.kills)),
+        assists: Math.max(0, toInt(row.deaths)),
+        treasury_spent: Math.max(0, toInt(row.assists)),
+        score: Math.max(0, toInt(row.treasury_spent)),
+      };
+    }),
+  };
+}
+
 function sanitizeRows(rows: CwResultRow[]) {
   const unique = new Map<string, CwResultRow>();
   let discarded = 0;
@@ -123,10 +168,12 @@ function sanitizeRows(rows: CwResultRow[]) {
     }
   }
 
-  const cleanRows = [...unique.values()].sort((a, b) => b.score - a.score || b.kills - a.kills || a.character_name.localeCompare(b.character_name, "ru"));
+  const repairedRows = repairShiftedStalcraftRows([...unique.values()]);
+  const cleanRows = repairedRows.rows.sort((a, b) => b.score - a.score || b.kills - a.kills || a.character_name.localeCompare(b.character_name, "ru"));
   const notes: string[] = [];
   if (discarded > 0) notes.push(`Скрыто подозрительных или мусорных строк: ${discarded}.`);
   if (deduped > 0) notes.push("Повторяющиеся ники автоматически схлопнуты в лучший вариант строки.");
+  if (repairedRows.repaired) notes.push("Обнаружен сдвиг колонок в STALCRAFT-таблице: убийства вынесены из имени, а счёт восстановлен из соседней колонки.");
   return { rows: cleanRows, notes };
 }
 
@@ -331,12 +378,12 @@ const STALCRAFT_FIXED_ROW_CROPS = [
 ] as const;
 
 const STALCRAFT_FIXED_COLUMNS = [
-  { key: "name", x: 0.035, width: 0.47, kind: "name" },
-  { key: "kills", x: 0.505, width: 0.075, kind: "number" },
-  { key: "deaths", x: 0.585, width: 0.08, kind: "number" },
-  { key: "assists", x: 0.67, width: 0.075, kind: "number" },
-  { key: "treasury", x: 0.745, width: 0.115, kind: "number" },
-  { key: "score", x: 0.86, width: 0.085, kind: "number" },
+  { key: "name", x: 0.03, width: 0.435, kind: "name" },
+  { key: "kills", x: 0.468, width: 0.062, kind: "number" },
+  { key: "deaths", x: 0.548, width: 0.062, kind: "number" },
+  { key: "assists", x: 0.628, width: 0.062, kind: "number" },
+  { key: "treasury", x: 0.715, width: 0.112, kind: "number" },
+  { key: "score", x: 0.832, width: 0.078, kind: "number" },
 ] as const;
 
 const STALCRAFT_FIXED_ROW_LAYOUTS = [
