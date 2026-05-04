@@ -505,14 +505,20 @@ async function recognizePreparedCanvas(
   worker: Tesseract.Worker,
   canvas: HTMLCanvasElement,
   kind: "name" | "number",
+  options?: { singleLine?: boolean },
 ) {
-  await worker.setParameters({
+  const params: Record<string, string> = {
     preserve_interword_spaces: "1",
-    tessedit_pageseg_mode: kind === "number" ? "8" : "7",
     tessedit_char_whitelist: kind === "number"
       ? "0123456789OoОоIlІ|ЗзБб"
       : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя0123456789_-.[]# ",
-  } as any);
+  };
+
+  if (options?.singleLine) {
+    params.tessedit_pageseg_mode = kind === "number" ? "8" : "7";
+  }
+
+  await worker.setParameters(params as any);
   const result = await worker.recognize(canvas);
   return (result.data.text || "").trim();
 }
@@ -557,7 +563,7 @@ async function ocrStalcraftFixedRows(
               }
 
               try {
-                const text = await recognizePreparedCanvas(worker, cellCanvas, spec.kind);
+                const text = await recognizePreparedCanvas(worker, cellCanvas, spec.kind, { singleLine: true });
                 const line = sanitizeOcrColumnLines(text.split("\n"), spec.kind)[0] || "";
                 parts.push(line);
               } finally {
@@ -603,13 +609,6 @@ async function ocrStalcraftFixedLayout(
   let bestRows: CwResultRow[] = [];
   let bestLabel = "";
   let bestScore = -1;
-
-  const rowBased = await ocrStalcraftFixedRows(imageSource, imageWidth, imageHeight, worker, onStatus);
-  if (rowBased?.rows?.length) {
-    bestRows = rowBased.rows;
-    bestLabel = rowBased.label;
-    bestScore = scoreRecognizedRows(rowBased.rows);
-  }
 
   for (const crop of STALCRAFT_FIXED_ROW_CROPS) {
     for (const mode of ["whiteText", "whiteTextSoft", "contrast"] as const) {
@@ -667,6 +666,21 @@ async function ocrStalcraftFixedLayout(
         }
       } finally {
         rowCanvas.remove();
+      }
+    }
+  }
+
+  if (bestRows.length < 7) {
+    const rowBased = await ocrStalcraftFixedRows(imageSource, imageWidth, imageHeight, worker, onStatus);
+    if (rowBased?.rows?.length) {
+      const rowScore = scoreRecognizedRows(rowBased.rows);
+      if (
+        rowBased.rows.length > bestRows.length
+        || (rowBased.rows.length === bestRows.length && rowScore > bestScore)
+      ) {
+        bestRows = rowBased.rows;
+        bestLabel = rowBased.label;
+        bestScore = rowScore;
       }
     }
   }
