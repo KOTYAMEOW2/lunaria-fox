@@ -12,6 +12,8 @@ export default function DocsPage() {
     "Офицерам выполнить `/sc-readiness`, чтобы увидеть, кто не заполнил снаряжение перед КВ.",
     "В 14:00 МСК бот сам отправит КВ-пост, а в 19:30 даст readiness-сводку.",
     "Табы КВ добавляются на сайте или через `/sc-cw upload-tabs`, а публикуются командой `/sc-cw publish-results`.",
+    "Для serverless open-source AI на Vercel без своего ПК можно задать `CW_TABS_AI_PROVIDER=hf`, `HF_TOKEN` и при желании `HF_CW_TABS_MODEL=Qwen/Qwen2.5-VL-7B-Instruct`.",
+    "Для локального open-source AI по табам можно установить Ollama, скачать vision-модель вроде `qwen2.5vl:7b`, затем задать `CW_TABS_AI_PROVIDER=ollama` и при необходимости `OLLAMA_CW_TABS_MODEL=qwen2.5vl:7b`.",
     "После SQL-обновлений перезапустить бота и сайт, затем открыть Dashboard сервера и проверить, что изменения ролей, отрядов, табов и выбросов подтягиваются без ручного рефреша.",
   ];
 

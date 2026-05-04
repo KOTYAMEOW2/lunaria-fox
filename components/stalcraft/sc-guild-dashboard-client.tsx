@@ -4,6 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState, startTransition
 import { useRouter } from "next/navigation";
 
 import type { ScGuildDashboardData } from "@/lib/stalcraft/sc-dashboard";
+import { sanitizeCwRows, toInt, type CwResultRow } from "@/lib/stalcraft/cw-ocr-core";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 
 export type ScDashboardSection = "overview" | "settings" | "attendance" | "squads" | "tabs";
@@ -32,208 +33,7 @@ const navItems: Array<[ScDashboardSection, string, string]> = [
 
 const MAX_CW_SQUADS = 7;
 
-type CwResultRow = {
-  character_name: string;
-  matches_count: number;
-  kills: number;
-  deaths: number;
-  assists: number;
-  treasury_spent: number;
-  score: number;
-};
-
 const OCR_IGNORED_ROW = /^(сводка|преимущество|захваченные|информация|ник|игрок|player|name|kills?|убийств|смерт|death|assist|казна|score|счет|счёт|ранг|k\/d|у\s+с\s+п)/i;
-
-function toInt(value: string | number | null | undefined) {
-  const parsed = Number.parseInt(String(value ?? "0").replace(/[^\d-]/g, ""), 10);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function normalizedPlayerKey(value: string) {
-  return String(value || "")
-    .toLocaleLowerCase("ru")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function cleanPlayerName(value: string) {
-  return String(value || "")
-    .replace(/[|¦]/g, " ")
-    .replace(/[^\p{L}\p{N}\s_[\].#-]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function looksLikeRealPlayerName(value: string) {
-  const name = cleanPlayerName(value);
-  if (!name || name.length < 2) return false;
-  if (OCR_IGNORED_ROW.test(name)) return false;
-  return /[\p{L}\p{N}]/u.test(name);
-}
-
-function rowSignalScore(row: CwResultRow) {
-  return (
-    Math.min(5, Math.max(1, row.matches_count || 1)) * 100_000_000_000
-    + toInt(row.score) * 100_000
-    + toInt(row.treasury_spent) * 100
-    + toInt(row.kills) * 10
-    + toInt(row.assists)
-    - toInt(row.deaths)
-  );
-}
-
-function extractTrailingStandaloneStat(name: string) {
-  const match = String(name || "").match(/^(.*?)(?:\s+)([\dOoОоIlІ|]{1,2})$/u);
-  if (!match) return null;
-  const tail = normalizeOcrNumberToken(match[2] || "");
-  if (!tail && !/[OoОо]/.test(match[2] || "")) return null;
-
-  return {
-    character_name: match[1].trim(),
-    value: Math.max(0, toInt(tail || "0")),
-  };
-}
-
-function repairShiftedStalcraftRows(rows: CwResultRow[]) {
-  if (rows.length < 4) return { rows, repaired: false };
-
-  const suspiciousRows = rows.filter((row) =>
-    row.score === 0
-    && row.treasury_spent > 0
-    && row.assists >= 50
-    && Boolean(extractTrailingStandaloneStat(row.character_name)),
-  );
-
-  if (suspiciousRows.length < Math.max(3, Math.ceil(rows.length * 0.45))) {
-    return { rows, repaired: false };
-  }
-
-  return {
-    repaired: true,
-    rows: rows.map((row) => {
-      const trailing = extractTrailingStandaloneStat(row.character_name);
-      if (!trailing || row.score !== 0 || row.treasury_spent <= 0) return row;
-
-      return {
-        ...row,
-        character_name: trailing.character_name || row.character_name,
-        kills: trailing.value,
-        deaths: Math.max(0, toInt(row.kills)),
-        assists: Math.max(0, toInt(row.deaths)),
-        treasury_spent: Math.max(0, toInt(row.assists)),
-        score: Math.max(0, toInt(row.treasury_spent)),
-      };
-    }),
-  };
-}
-
-function repairTreasuryScoreTail(rows: CwResultRow[]) {
-  if (rows.length < 4) return { rows, repaired: false };
-
-  const suspiciousRows = rows.filter((row) => row.treasury_spent >= 50_000 && row.score >= 0 && row.score < 100);
-  if (suspiciousRows.length < Math.max(3, Math.ceil(rows.length * 0.45))) {
-    return { rows, repaired: false };
-  }
-
-  const repairedRows = rows.map((row) => {
-    if (row.treasury_spent < 10_000 || row.score >= 100) return row;
-
-    const digits = String(Math.max(0, toInt(row.treasury_spent)));
-    let bestTreasury = row.treasury_spent;
-    let bestScore = row.score;
-    let bestPenalty = Number.POSITIVE_INFINITY;
-
-    for (const movedDigits of [2, 1, 3] as const) {
-      if (digits.length <= movedDigits + 1) continue;
-      const treasuryDigits = digits.slice(0, -movedDigits);
-      const scorePrefix = digits.slice(-movedDigits);
-      const scoreSuffix = String(Math.max(0, toInt(row.score))).padStart(2, "0");
-      const nextTreasury = Math.max(0, toInt(treasuryDigits));
-      const nextScore = Math.max(0, toInt(`${scorePrefix}${scoreSuffix}`));
-
-      if (nextTreasury <= 0 || nextScore <= 0) continue;
-
-      let penalty = 0;
-      if (nextTreasury > 99_999) penalty += 60;
-      if (nextScore > 9_999) penalty += 50;
-      if (nextScore < 100) penalty += 80;
-      if (nextTreasury < Math.max(row.kills, row.deaths)) penalty += 40;
-
-      const ratio = nextScore > 0 ? nextTreasury / nextScore : 99;
-      if (ratio > 25) penalty += 30;
-      if (ratio < 0.08) penalty += 30;
-
-      if (movedDigits !== 2) penalty += 6;
-
-      if (penalty < bestPenalty) {
-        bestPenalty = penalty;
-        bestTreasury = nextTreasury;
-        bestScore = nextScore;
-      }
-    }
-
-    if (bestPenalty === Number.POSITIVE_INFINITY) return row;
-    return {
-      ...row,
-      treasury_spent: bestTreasury,
-      score: bestScore,
-    };
-  });
-
-  return { rows: repairedRows, repaired: true };
-}
-
-function sanitizeRows(rows: CwResultRow[]) {
-  const unique = new Map<string, CwResultRow>();
-  let discarded = 0;
-  let deduped = 0;
-
-  for (const row of rows) {
-    const character_name = cleanPlayerName(row.character_name);
-    if (!looksLikeRealPlayerName(character_name)) {
-      discarded += 1;
-      continue;
-    }
-
-    const normalized: CwResultRow = {
-      character_name,
-      matches_count: Math.max(1, toInt(row.matches_count || 1)),
-      kills: Math.max(0, toInt(row.kills)),
-      deaths: Math.max(0, toInt(row.deaths)),
-      assists: Math.max(0, toInt(row.assists)),
-      treasury_spent: Math.max(0, toInt(row.treasury_spent)),
-      score: Math.max(0, toInt(row.score)),
-    };
-
-    if (
-      normalized.kills > 3000
-      || normalized.deaths > 3000
-      || normalized.assists > 3000
-      || normalized.treasury_spent > 2_000_000_000
-      || normalized.score > 2_000_000_000
-    ) {
-      discarded += 1;
-      continue;
-    }
-
-    const key = normalizedPlayerKey(character_name);
-    const current = unique.get(key);
-    if (current) deduped += 1;
-    if (!current || rowSignalScore(normalized) > rowSignalScore(current)) {
-      unique.set(key, normalized);
-    }
-  }
-
-  const repairedRows = repairShiftedStalcraftRows([...unique.values()]);
-  const repairedTreasuryRows = repairTreasuryScoreTail(repairedRows.rows);
-  const cleanRows = repairedTreasuryRows.rows.sort((a, b) => b.score - a.score || b.kills - a.kills || a.character_name.localeCompare(b.character_name, "ru"));
-  const notes: string[] = [];
-  if (discarded > 0) notes.push(`Скрыто подозрительных или мусорных строк: ${discarded}.`);
-  if (deduped > 0) notes.push("Повторяющиеся ники автоматически схлопнуты в лучший вариант строки.");
-  if (repairedRows.repaired) notes.push("Обнаружен сдвиг колонок в STALCRAFT-таблице: убийства вынесены из имени, а счёт восстановлен из соседней колонки.");
-  if (repairedTreasuryRows.repaired) notes.push("Обнаружен склеенный хвост счёта в колонке казны: казна уменьшена, а счёт восстановлен из последних цифр.");
-  return { rows: cleanRows, notes };
-}
 
 function parseManualResultRows(value: string): CwResultRow[] {
   return value
@@ -436,13 +236,40 @@ const STALCRAFT_FIXED_ROW_CROPS = [
 ] as const;
 const STALCRAFT_AI_TABLE_CROP = { x: 0.315, y: 0.135, width: 0.645, height: 0.29 } as const;
 
-const STALCRAFT_FIXED_COLUMNS = [
-  { key: "name", x: 0.03, width: 0.435, kind: "name" },
-  { key: "kills", x: 0.468, width: 0.062, kind: "number" },
-  { key: "deaths", x: 0.548, width: 0.062, kind: "number" },
-  { key: "assists", x: 0.628, width: 0.062, kind: "number" },
-  { key: "treasury", x: 0.715, width: 0.112, kind: "number" },
-  { key: "score", x: 0.832, width: 0.078, kind: "number" },
+const STALCRAFT_FIXED_COLUMN_LAYOUTS = [
+  {
+    label: "base",
+    columns: [
+      { key: "name", x: 0.03, width: 0.435, kind: "name" },
+      { key: "kills", x: 0.468, width: 0.062, kind: "number" },
+      { key: "deaths", x: 0.548, width: 0.062, kind: "number" },
+      { key: "assists", x: 0.628, width: 0.062, kind: "number" },
+      { key: "treasury", x: 0.715, width: 0.112, kind: "number" },
+      { key: "score", x: 0.832, width: 0.078, kind: "number" },
+    ],
+  },
+  {
+    label: "shifted right",
+    columns: [
+      { key: "name", x: 0.028, width: 0.455, kind: "name" },
+      { key: "kills", x: 0.495, width: 0.056, kind: "number" },
+      { key: "deaths", x: 0.575, width: 0.056, kind: "number" },
+      { key: "assists", x: 0.655, width: 0.056, kind: "number" },
+      { key: "treasury", x: 0.742, width: 0.104, kind: "number" },
+      { key: "score", x: 0.853, width: 0.068, kind: "number" },
+    ],
+  },
+  {
+    label: "wide name",
+    columns: [
+      { key: "name", x: 0.02, width: 0.472, kind: "name" },
+      { key: "kills", x: 0.505, width: 0.052, kind: "number" },
+      { key: "deaths", x: 0.585, width: 0.052, kind: "number" },
+      { key: "assists", x: 0.665, width: 0.052, kind: "number" },
+      { key: "treasury", x: 0.748, width: 0.1, kind: "number" },
+      { key: "score", x: 0.852, width: 0.07, kind: "number" },
+    ],
+  },
 ] as const;
 
 const STALCRAFT_FIXED_ROW_LAYOUTS = [
@@ -642,11 +469,17 @@ function sanitizeOcrColumnLines(lines: string[], kind: "name" | "number") {
     .filter((line) => line.length > 1 && !OCR_IGNORED_ROW.test(line));
 }
 
+function sanitizeOcrRowLines(lines: string[]) {
+  return lines
+    .map((line) => line.replace(/[|¦]/g, " ").replace(/\s+/g, " ").trim())
+    .filter((line) => line.length > 4 && !OCR_IGNORED_ROW.test(line));
+}
+
 async function recognizePreparedCanvas(
   worker: Tesseract.Worker,
   canvas: HTMLCanvasElement,
-  kind: "name" | "number",
-  options?: { singleLine?: boolean },
+  kind: "name" | "number" | "row",
+  options?: { singleLine?: boolean; pagesegMode?: string },
 ) {
   const params: Record<string, string> = {
     preserve_interword_spaces: "1",
@@ -655,7 +488,13 @@ async function recognizePreparedCanvas(
       : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя0123456789_-.[]# ",
   };
 
-  if (options?.singleLine) {
+  if (kind === "row") {
+    params.tessedit_char_whitelist = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя0123456789_-.[]# ";
+  }
+
+  if (options?.pagesegMode) {
+    params.tessedit_pageseg_mode = options.pagesegMode;
+  } else if (options?.singleLine) {
     params.tessedit_pageseg_mode = kind === "number" ? "8" : "7";
   }
 
@@ -664,12 +503,102 @@ async function recognizePreparedCanvas(
   return (result.data.text || "").trim();
 }
 
+async function recognizePreparedCanvasCandidates(
+  worker: Tesseract.Worker,
+  canvas: HTMLCanvasElement,
+  kind: "name" | "number" | "row",
+) {
+  const attempts = kind === "number"
+    ? [
+      { singleLine: true, pagesegMode: "8" },
+      { singleLine: true, pagesegMode: "7" },
+      { singleLine: true, pagesegMode: "13" },
+      {},
+    ]
+    : kind === "row"
+      ? [
+        { singleLine: true, pagesegMode: "7" },
+        { singleLine: true, pagesegMode: "13" },
+        { pagesegMode: "6" },
+      ]
+      : [
+        { singleLine: true, pagesegMode: "7" },
+        { singleLine: true, pagesegMode: "13" },
+        {},
+      ];
+
+  const unique = new Set<string>();
+  const values: string[] = [];
+
+  for (const attempt of attempts) {
+    const text = await recognizePreparedCanvas(worker, canvas, kind, attempt);
+    const nextValues = kind === "number"
+      ? sanitizeOcrColumnLines(text.split("\n"), "number")
+      : kind === "name"
+        ? sanitizeOcrColumnLines(text.split("\n"), "name")
+        : sanitizeOcrRowLines(text.split("\n"));
+    for (const value of nextValues) {
+      if (unique.has(value)) continue;
+      unique.add(value);
+      values.push(value);
+    }
+  }
+
+  return values;
+}
+
+function buildFixedRowCombinations(columns: string[][], limit = 96) {
+  const variants = columns.map((column) => {
+    const unique = [...new Set(column.filter(Boolean))];
+    if (unique.length === 0) return [""];
+    return unique.slice(0, 2);
+  });
+
+  let combinations: string[][] = [[]];
+  for (const variant of variants) {
+    const next: string[][] = [];
+    for (const prefix of combinations) {
+      for (const value of variant) {
+        next.push([...prefix, value]);
+        if (next.length >= limit) break;
+      }
+      if (next.length >= limit) break;
+    }
+    combinations = next;
+    if (combinations.length >= limit) break;
+  }
+
+  return combinations;
+}
+
+function pickBestRowCandidate(candidates: CwResultRow[], knownNames: string[]) {
+  let bestRow: CwResultRow | null = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (const candidate of candidates) {
+    const normalized = sanitizeCwRows([candidate], knownNames).rows[0];
+    if (!normalized) continue;
+    let score = scoreRowQuality(normalized);
+    if (knownNames.includes(normalized.character_name)) score += 14;
+    if (normalized.matches_count === 1) score += 4;
+    if (normalized.score > 0) score += 4;
+    if (normalized.treasury_spent > 0) score += 4;
+    if (score > bestScore) {
+      bestScore = score;
+      bestRow = normalized;
+    }
+  }
+
+  return bestRow;
+}
+
 async function ocrStalcraftFixedRows(
   imageSource: CanvasImageSource,
   imageWidth: number,
   imageHeight: number,
   worker: Tesseract.Worker,
   onStatus: (msg: string) => void,
+  knownNames: string[],
 ): Promise<{ rows: CwResultRow[]; label: string } | null> {
   let bestRows: CwResultRow[] = [];
   let bestLabel = "";
@@ -684,39 +613,91 @@ async function ocrStalcraftFixedRows(
           const rows: CwResultRow[] = [];
           const rowHeight = layout.height / layout.rows;
 
-          for (let rowIndex = 0; rowIndex < layout.rows; rowIndex += 1) {
-            const rowTop = layout.top + rowIndex * rowHeight;
-            const parts: string[] = [];
+          for (const columnLayout of STALCRAFT_FIXED_COLUMN_LAYOUTS) {
+            const layoutRows: CwResultRow[] = [];
 
-            for (const spec of STALCRAFT_FIXED_COLUMNS) {
-              const cellCanvas = cropRect(
+            for (let rowIndex = 0; rowIndex < layout.rows; rowIndex += 1) {
+              const rowTop = layout.top + rowIndex * rowHeight;
+              const partCandidates: string[][] = [];
+
+              for (const spec of columnLayout.columns) {
+                const cellCanvas = cropRect(
+                  tableCanvas,
+                  tableCanvas.width,
+                  tableCanvas.height,
+                  { x: spec.x, y: rowTop, width: spec.width, height: rowHeight },
+                  spec.kind === "name" ? 8 : 2,
+                  2,
+                  spec.kind === "name" ? 2.2 : 2.8,
+                );
+                if (!cellCanvas) {
+                  partCandidates.push([""]);
+                  continue;
+                }
+
+                try {
+                  const values = await recognizePreparedCanvasCandidates(worker, cellCanvas, spec.kind);
+                  partCandidates.push(values.length ? values : [""]);
+                } finally {
+                  cellCanvas.remove();
+                }
+              }
+
+              const rowCandidates: CwResultRow[] = [];
+              for (const parts of buildFixedRowCombinations(partCandidates)) {
+                const row = parseColumnRow(parts);
+                if (row) rowCandidates.push(row);
+              }
+
+              const rowCanvas = cropRect(
                 tableCanvas,
                 tableCanvas.width,
                 tableCanvas.height,
-                { x: spec.x, y: rowTop, width: spec.width, height: rowHeight },
-                spec.kind === "name" ? 8 : 2,
+                { x: 0.02, y: rowTop, width: 0.89, height: rowHeight },
                 2,
-                spec.kind === "name" ? 2.2 : 2.8,
+                2,
+                2.7,
               );
-              if (!cellCanvas) {
-                parts.push("");
-                continue;
+              if (rowCanvas) {
+                try {
+                  const lineCandidates = await recognizePreparedCanvasCandidates(worker, rowCanvas, "row");
+                  for (const line of lineCandidates) {
+                    const parsed = parseStalcraftScoreboardLine(line);
+                    if (parsed) rowCandidates.push(parsed);
+                    const bestName = partCandidates[0]?.[0];
+                    if (parsed && bestName) {
+                      const hybrid = parseColumnRow([
+                        bestName,
+                        String(parsed.kills),
+                        String(parsed.deaths),
+                        String(parsed.assists),
+                        String(parsed.treasury_spent),
+                        String(parsed.score),
+                      ]);
+                      if (hybrid) rowCandidates.push(hybrid);
+                    }
+                  }
+                } finally {
+                  rowCanvas.remove();
+                }
               }
 
-              try {
-                const text = await recognizePreparedCanvas(worker, cellCanvas, spec.kind, { singleLine: true });
-                const line = sanitizeOcrColumnLines(text.split("\n"), spec.kind)[0] || "";
-                parts.push(line);
-              } finally {
-                cellCanvas.remove();
-              }
+              const bestRow = pickBestRowCandidate(rowCandidates, knownNames);
+              if (bestRow) layoutRows.push(bestRow);
             }
 
-            const row = parseColumnRow(parts);
-            if (row) rows.push(row);
+            const candidateRows = sanitizeCwRows(layoutRows, knownNames).rows;
+            const candidateScore = scoreRecognizedRows(candidateRows);
+            if (
+              candidateRows.length > rows.length
+              || (candidateRows.length === rows.length && candidateScore > scoreRecognizedRows(rows))
+            ) {
+              rows.splice(0, rows.length, ...candidateRows);
+              bestLabel = `${crop.label} · ${mode} · ${layout.label} · ${columnLayout.label} · fixed rows`;
+            }
           }
 
-          const normalized = sanitizeRows(rows).rows;
+          const normalized = sanitizeCwRows(rows, knownNames).rows;
           const score = scoreRecognizedRows(normalized);
           if (
             normalized.length > bestRows.length
@@ -746,6 +727,7 @@ async function ocrStalcraftFixedLayout(
   imageHeight: number,
   worker: Tesseract.Worker,
   onStatus: (msg: string) => void,
+  knownNames: string[],
 ): Promise<{ rows: CwResultRow[]; label: string } | null> {
   let bestRows: CwResultRow[] = [];
   let bestLabel = "";
@@ -757,53 +739,55 @@ async function ocrStalcraftFixedLayout(
       const rowCanvas = buildOcrCanvas(imageSource, imageWidth, imageHeight, crop, mode);
 
       try {
-        const columns: string[][] = [];
-        for (const spec of STALCRAFT_FIXED_COLUMNS) {
-          const pad = spec.kind === "name" ? 6 : 2;
-          const colCanvas = cropColumn(rowCanvas, rowCanvas.width, rowCanvas.height, { x: spec.x, width: spec.width }, pad, pad);
-          if (!colCanvas) {
-            columns.push([]);
-            continue;
+        for (const columnLayout of STALCRAFT_FIXED_COLUMN_LAYOUTS) {
+          const columns: string[][] = [];
+          for (const spec of columnLayout.columns) {
+            const pad = spec.kind === "name" ? 6 : 2;
+            const colCanvas = cropColumn(rowCanvas, rowCanvas.width, rowCanvas.height, { x: spec.x, width: spec.width }, pad, pad);
+            if (!colCanvas) {
+              columns.push([]);
+              continue;
+            }
+
+            try {
+              const values = await recognizePreparedCanvasCandidates(worker, colCanvas, spec.kind);
+              columns.push(values);
+            } finally {
+              colCanvas.remove();
+            }
           }
 
-          try {
-            const text = await recognizePreparedCanvas(worker, colCanvas, spec.kind);
-            columns.push(sanitizeOcrColumnLines(text.split("\n"), spec.kind));
-          } finally {
-            colCanvas.remove();
+          const rowCount = Math.max(...columns.map((column) => column.length), 0);
+          if (rowCount < 5) continue;
+
+          const rows: CwResultRow[] = [];
+          for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+            const name = columns[0]?.[rowIndex] || "";
+            const parts = [
+              name,
+              columns[1]?.[rowIndex] || "",
+              columns[2]?.[rowIndex] || "",
+              columns[3]?.[rowIndex] || "",
+              columns[4]?.[rowIndex] || "",
+              columns[5]?.[rowIndex] || "",
+            ];
+            const row = parseColumnRow(parts);
+            if (row) rows.push(row);
           }
-        }
 
-        const rowCount = Math.max(...columns.map((column) => column.length), 0);
-        if (rowCount < 5) continue;
-
-        const rows: CwResultRow[] = [];
-        for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
-          const name = columns[0]?.[rowIndex] || "";
-          const parts = [
-            name,
-            columns[1]?.[rowIndex] || "",
-            columns[2]?.[rowIndex] || "",
-            columns[3]?.[rowIndex] || "",
-            columns[4]?.[rowIndex] || "",
-            columns[5]?.[rowIndex] || "",
-          ];
-          const row = parseColumnRow(parts);
-          if (row) rows.push(row);
-        }
-
-        const normalized = sanitizeRows(rows).rows;
-        const score = scoreRecognizedRows(normalized);
-        if (
-          normalized.length > bestRows.length
-          || (normalized.length === bestRows.length && score > bestScore)
-        ) {
-          bestRows = normalized;
-          bestLabel = `${crop.label} · ${mode} · fixed columns`;
-          bestScore = score;
-        }
-        if (normalized.length >= 8 && score >= bestScore) {
-          return { rows: normalized, label: `${crop.label} · ${mode} · fixed columns` };
+          const normalized = sanitizeCwRows(rows, knownNames).rows;
+          const score = scoreRecognizedRows(normalized);
+          if (
+            normalized.length > bestRows.length
+            || (normalized.length === bestRows.length && score > bestScore)
+          ) {
+            bestRows = normalized;
+            bestLabel = `${crop.label} · ${mode} · ${columnLayout.label} · fixed columns`;
+            bestScore = score;
+          }
+          if (normalized.length >= 8 && score >= bestScore) {
+            return { rows: normalized, label: `${crop.label} · ${mode} · ${columnLayout.label} · fixed columns` };
+          }
         }
       } finally {
         rowCanvas.remove();
@@ -812,7 +796,7 @@ async function ocrStalcraftFixedLayout(
   }
 
   if (bestRows.length < 7) {
-    const rowBased = await ocrStalcraftFixedRows(imageSource, imageWidth, imageHeight, worker, onStatus);
+    const rowBased = await ocrStalcraftFixedRows(imageSource, imageWidth, imageHeight, worker, onStatus, knownNames);
     if (rowBased?.rows?.length) {
       const rowScore = scoreRecognizedRows(rowBased.rows);
       if (
@@ -1173,6 +1157,10 @@ function buildCropDataUrl(
 export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) {
   const router = useRouter();
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const knownRosterNames = useMemo(
+    () => [...new Set((data.clanMembers || []).map((member: any) => String(member.character_name || "").trim()).filter(Boolean))],
+    [data.clanMembers],
+  );
   const [status, setStatus] = useState("");
   const [resultText, setResultText] = useState("");
   const [ocrStatus, setOcrStatus] = useState("Картинка не сохраняется: OCR работает в браузере.");
@@ -1223,7 +1211,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
     };
   }, [data.attendance]);
   const manualRows = useMemo(() => parseManualResultRows(resultText), [resultText]);
-  const parsedRows = useMemo(() => sanitizeRows(manualRows).rows, [manualRows]);
+  const parsedRows = useMemo(() => sanitizeCwRows(manualRows, knownRosterNames).rows, [manualRows, knownRosterNames]);
   const totalRows = useMemo(() => aggregateRows(resultRows), [resultRows]);
   const tabsSummary = useMemo(() => {
     const previewScore = ocrPreviewRows.reduce((sum, row) => sum + toInt(row.score), 0);
@@ -1584,6 +1572,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
           image.height,
           worker,
           (msg) => setOcrStatus(msg),
+          knownNames,
         );
         if (fixedRows?.rows?.length) {
           bestRows = fixedRows.rows;
@@ -1659,7 +1648,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
         });
         const body = await response.json().catch(() => ({}));
         if (response.ok && Array.isArray(body.rows) && body.rows.length > 0) {
-          const aiRows = sanitizeRows(body.rows).rows;
+          const aiRows = sanitizeCwRows(body.rows, knownRosterNames).rows;
           const chosenRows = pickBetterRows(bestRows, aiRows);
           if (chosenRows !== bestRows) {
             bestRows = chosenRows;
@@ -1678,7 +1667,7 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
         setOcrStatus("ИИ-проверка недоступна, оставляю OCR-результат.");
       }
 
-      const normalized = sanitizeRows(bestRows);
+      const normalized = sanitizeCwRows(bestRows, knownRosterNames);
       setOcrPreviewRows(normalized.rows);
       setOcrNotes([...normalized.notes, ...aiNotes]);
       setOcrSource(bestLabel || "не определён");
