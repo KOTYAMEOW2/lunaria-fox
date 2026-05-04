@@ -434,6 +434,7 @@ const STALCRAFT_FIXED_ROW_CROPS = [
   { label: "stalcraft fixed tight", x: 0.335, y: 0.19, width: 0.605, height: 0.23 },
   { label: "stalcraft fixed relaxed", x: 0.325, y: 0.18, width: 0.62, height: 0.245 },
 ] as const;
+const STALCRAFT_AI_TABLE_CROP = { x: 0.315, y: 0.135, width: 0.645, height: 0.29 } as const;
 
 const STALCRAFT_FIXED_COLUMNS = [
   { key: "name", x: 0.03, width: 0.435, kind: "name" },
@@ -591,6 +592,41 @@ function scoreRecognizedRows(rows: CwResultRow[]) {
     const filledStats = [row.kills, row.deaths, row.assists, row.treasury_spent, row.score].filter((value) => Number(value) > 0).length;
     return score + row.character_name.length * 2 + filledStats * 20 + (row.score > 0 ? 30 : 0);
   }, 0);
+}
+
+function scoreRowQuality(row: CwResultRow) {
+  let score = 0;
+  if (row.character_name.trim().length >= 3) score += 15;
+  if (row.kills >= 0 && row.kills <= 20) score += 20; else score -= 20;
+  if (row.deaths >= 0 && row.deaths <= 20) score += 20; else score -= 20;
+  if (row.assists >= 0 && row.assists <= 20) score += 20; else score -= 20;
+  if (row.treasury_spent >= 100 && row.treasury_spent <= 100_000) score += 20;
+  else if (row.treasury_spent > 0 && row.treasury_spent <= 250_000) score += 8;
+  else score -= 12;
+
+  if (row.score >= 100 && row.score <= 10_000) score += 22;
+  else if (row.score > 0 && row.score <= 25_000) score += 8;
+  else if (row.score === 0 && row.treasury_spent > 0) score -= 18;
+  else score -= 10;
+
+  const kd = row.deaths === 0 ? row.kills : row.kills / Math.max(1, row.deaths);
+  if (kd <= 8) score += 8; else score -= 10;
+  if (/[0-9]$/.test(row.character_name.trim())) score -= 8;
+  return score;
+}
+
+function scoreCandidateQuality(rows: CwResultRow[]) {
+  if (!rows.length) return Number.NEGATIVE_INFINITY;
+  const rowScores = rows.reduce((sum, row) => sum + scoreRowQuality(row), 0);
+  const zeroScores = rows.filter((row) => row.score === 0 && row.treasury_spent > 0).length;
+  const hugeTreasury = rows.filter((row) => row.treasury_spent > 120_000).length;
+  return rowScores + rows.length * 30 - zeroScores * 25 - hugeTreasury * 12;
+}
+
+function pickBetterRows(currentRows: CwResultRow[], candidateRows: CwResultRow[]) {
+  const currentScore = scoreCandidateQuality(currentRows);
+  const candidateScore = scoreCandidateQuality(candidateRows);
+  return candidateScore > currentScore + 6 ? candidateRows : currentRows;
 }
 
 function sanitizeOcrColumnLines(lines: string[], kind: "name" | "number") {
@@ -1116,6 +1152,24 @@ function buildOcrCanvas(
   return canvas;
 }
 
+function buildCropDataUrl(
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  crop: { x: number; y: number; width: number; height: number },
+  mode?: OcrCanvasMode,
+) {
+  const canvas = mode
+    ? buildOcrCanvas(source, sourceWidth, sourceHeight, crop, mode)
+    : cropRect(source, sourceWidth, sourceHeight, crop, 0, 0, 1.7);
+  if (!canvas) return "";
+  try {
+    return canvas.toDataURL("image/png");
+  } finally {
+    canvas.remove();
+  }
+}
+
 export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) {
   const router = useRouter();
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1499,8 +1553,29 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
       let bestLabel = "";
       let bestTextLength = 0;
       let aiNotes: string[] = [];
+      let tableImageDataUrl = "";
+      let processedTableImageDataUrl = "";
+      let knownNames: string[] = [];
 
       try {
+        tableImageDataUrl = buildCropDataUrl(
+          image.source,
+          image.width,
+          image.height,
+          STALCRAFT_AI_TABLE_CROP,
+        );
+        processedTableImageDataUrl = buildCropDataUrl(
+          image.source,
+          image.width,
+          image.height,
+          STALCRAFT_AI_TABLE_CROP,
+          "whiteTextSoft",
+        );
+        knownNames = [...new Set((data.clanMembers || [])
+          .map((member: any) => String(member.character_name || "").trim())
+          .filter(Boolean))]
+          .slice(0, 120);
+
         await worker.setParameters({ preserve_interword_spaces: "1" });
 
         const fixedRows = await ocrStalcraftFixedLayout(
@@ -1576,16 +1651,26 @@ export function ScGuildDashboardClient({ guildId, data, activeSection }: Props) 
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             imageDataUrl: await fileToDataUrl(file),
+            tableImageDataUrl,
+            processedTableImageDataUrl,
             ocrRows: bestRows,
+            knownNames,
           }),
         });
         const body = await response.json().catch(() => ({}));
         if (response.ok && Array.isArray(body.rows) && body.rows.length > 0) {
-          bestRows = body.rows;
-          bestLabel = "AI verification";
-          aiNotes = Array.isArray(body.notes)
+          const aiRows = sanitizeRows(body.rows).rows;
+          const chosenRows = pickBetterRows(bestRows, aiRows);
+          if (chosenRows !== bestRows) {
+            bestRows = chosenRows;
+            bestLabel = "AI verification";
+          } else {
+            aiNotes = ["AI-версия была слабее локального OCR, поэтому оставлен лучший локальный результат."];
+          }
+          const modelNotes = Array.isArray(body.notes)
             ? body.notes.filter((note: unknown) => typeof note === "string" && note.trim()).map((note: string) => note.trim())
             : [];
+          aiNotes = [...aiNotes, ...modelNotes];
         } else if (response.status !== 501) {
           setOcrStatus(body.error || "ИИ не смог улучшить распознавание, оставляю OCR-результат.");
         }
