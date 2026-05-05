@@ -36,7 +36,7 @@ export default async function StalcraftPage({ searchParams }: { searchParams?: P
         <div className="page-head">
           <span className="eyebrow">STALCRAFT</span>
           <h1>Привязка персонажа STALCRAFT</h1>
-          <p>Эта привязка используется ботом для `/sc-profile`, `/sc-sync`, проверки клана, ролей и КВ-статистики.</p>
+          <p>Эта привязка используется ботом для `/sc-profile`, `/sc-sync`, проверки клана, ролей, КВ-статистики и витрины снаряжения.</p>
           {params.error ? <p className="page-alert">Ошибка: {params.error}</p> : null}
           {params.linked ? <p className="page-alert">EXBO-профиль привязан. Теперь выбери персонажа.</p> : null}
         </div>
@@ -52,8 +52,8 @@ export default async function StalcraftPage({ searchParams }: { searchParams?: P
           </div>
           <div className="grid-3">
             {[
-              ["`/sc-sync`", "Обновляет персонажа, клан, ранг, master-снаряжение и выдаёт SC Verified роль, если клан подходит."],
-              ["`/sc-profile`", "Показывает твой профиль внутри Discord: персонаж, регион, клан, ранг и найденное снаряжение."],
+              ["`/sc-sync`", "Обновляет персонажа, клан, ранг и пытается подтянуть снаряжение из доступного STALCRAFT API. Если API молчит, снаряжение можно уточнить на сайте вручную по официальной базе."],
+              ["`/sc-profile`", "Показывает твой профиль внутри Discord: персонаж, регион, клан, ранг и сохранённое снаряжение."],
               ["`/sc-assist overview`", "Показывает состояние сервера: КВ сегодня, очередь табов, выбросы и быстрые ссылки на сайт."],
             ].map(([title, body]) => (
               <article className="feature-card" key={title}>

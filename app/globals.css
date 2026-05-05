@@ -2871,6 +2871,53 @@ body {
   gap: 10px;
 }
 
+.sc-gear-manual-field {
+  align-content: start;
+}
+
+.sc-gear-manual-row,
+.sc-gear-search-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sc-gear-manual-row {
+  margin-top: 6px;
+}
+
+.sc-gear-manual-row input {
+  flex: 1 1 auto;
+}
+
+.sc-gear-manual-row .ghost-button {
+  flex: 0 0 auto;
+}
+
+.sc-gear-search-results {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.sc-gear-search-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(127, 198, 255, 0.16);
+  background:
+    linear-gradient(180deg, rgba(14, 18, 28, 0.9), rgba(8, 10, 18, 0.9)),
+    rgba(255, 255, 255, 0.03);
+}
+
+.sc-gear-search-item p {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+}
+
 .sc-gear-meta-row {
   margin-top: 4px;
 }
@@ -3079,6 +3126,13 @@ body {
   .sc-gear-grid,
   .sc-squad-grid {
     grid-template-columns: 1fr;
+  }
+
+  .sc-gear-manual-row,
+  .sc-gear-search-item,
+  .sc-gear-search-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 

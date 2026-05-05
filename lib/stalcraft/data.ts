@@ -161,7 +161,14 @@ async function syncApiEquipmentSnapshot(discordUserId: string, characterId: stri
 
 export async function saveManualStalcraftEquipment(
   discordUserId: string,
-  payload: { slot: "weapon" | "armor"; itemName?: string | null; equipmentId?: string | null; itemRank?: string | null; itemCategory?: string | null },
+  payload: {
+    slot: "weapon" | "armor";
+    itemName?: string | null;
+    equipmentId?: string | null;
+    itemRank?: string | null;
+    itemCategory?: string | null;
+    allowManualFallback?: boolean | null;
+  },
 ) {
   const profile = await getStalcraftProfile(discordUserId);
   if (!profile?.selected_character_id) throw new Error("Сначала выбери STALCRAFT-персонажа.");
@@ -181,6 +188,7 @@ export async function saveManualStalcraftEquipment(
   let resolvedConfidence: "exact" | "strong" | "fuzzy" = "exact";
   let requestedInput = cleanOptionalText(payload.itemName);
   let sourceApiRow: any = null;
+  let verificationMode: "api_confirmed" | "self_reported_no_api" | "self_reported_manual" = "api_confirmed";
 
   if (payload.equipmentId) {
     sourceApiRow = (ownedItems || []).find((row: any) => row.id === payload.equipmentId && row.slot === payload.slot);
@@ -216,7 +224,8 @@ export async function saveManualStalcraftEquipment(
     resolvedConfidence = resolved.confidence;
     requestedInput = itemName;
 
-    const ownsOfficialItem = (ownedItems || []).some((row: any) => {
+    const slotApiItems = (ownedItems || []).filter((row: any) => String(row.slot || "") === payload.slot);
+    const ownsOfficialItem = slotApiItems.some((row: any) => {
       const raw = row.raw && typeof row.raw === "object" ? row.raw : {};
       const officialId = cleanOptionalText((raw as Record<string, unknown>).official_item_id);
       const officialPath = cleanOptionalText((raw as Record<string, unknown>).official_path);
@@ -232,7 +241,13 @@ export async function saveManualStalcraftEquipment(
     });
 
     if (!ownsOfficialItem) {
-      throw new Error("Этот предмет не найден у выбранного персонажа в API-снимке. Сначала обнови персонажей или выбери вещь из реально найденного снаряжения.");
+      if (payload.allowManualFallback) {
+        verificationMode = "self_reported_manual";
+      } else if (slotApiItems.length > 0) {
+        throw new Error("Этот предмет не найден у выбранного персонажа в API-снимке. Выбери вещь из найденного снаряжения или обнови персонажей ещё раз.");
+      } else {
+        verificationMode = "self_reported_no_api";
+      }
     }
   }
 
@@ -259,12 +274,13 @@ export async function saveManualStalcraftEquipment(
         item_category: official.category || payload.itemCategory?.trim() || official.slot,
         source: "manual",
         verified_by: "official-database",
-        verified_at: now,
+        verified_at: verificationMode === "api_confirmed" ? now : null,
         raw: {
           source: "site",
           validated_at: now,
           requested_input: requestedInput,
           source_equipment_id: payload.equipmentId || sourceApiRow?.id || null,
+          verification_mode: verificationMode,
           confidence: resolvedConfidence,
           official_item_id: official.itemId,
           official_path: official.itemPath,
@@ -435,13 +451,13 @@ export async function saveStalcraftProfileShowcase(
   if (candidateIds.length > 0) {
     const { data: equipmentRows, error: equipmentError } = await supabase
       .from("sc_equipment")
-      .select("id, slot, source, verified_at")
+      .select("id, slot, source, verified_at, verified_by")
       .eq("discord_user_id", discordUserId)
       .in("id", candidateIds);
     if (equipmentError) throw equipmentError;
 
-    for (const row of (equipmentRows || []) as Array<{ id: string; slot: string; source: string | null; verified_at: string | null }>) {
-      if (row.source === "api" || row.verified_at) {
+    for (const row of (equipmentRows || []) as Array<{ id: string; slot: string; source: string | null; verified_at: string | null; verified_by: string | null }>) {
+      if (row.source === "api" || row.verified_by === "official-database" || row.verified_at) {
         allowedEquipment.set(row.id, row);
       }
     }
@@ -450,14 +466,14 @@ export async function saveStalcraftProfileShowcase(
   if (payload.pinnedWeaponId) {
     const row = allowedEquipment.get(payload.pinnedWeaponId);
     if (!row || row.slot !== "weapon") {
-      throw new Error("Основное оружие можно выбрать только из подтверждённых API-предметов.");
+      throw new Error("Основное оружие можно выбрать только из сохранённых вещей, подтверждённых API или официальной базой.");
     }
   }
 
   if (payload.pinnedArmorId) {
     const row = allowedEquipment.get(payload.pinnedArmorId);
     if (!row || row.slot !== "armor") {
-      throw new Error("Основную броню можно выбрать только из подтверждённых API-предметов.");
+      throw new Error("Основную броню можно выбрать только из сохранённых вещей, подтверждённых API или официальной базой.");
     }
   }
 

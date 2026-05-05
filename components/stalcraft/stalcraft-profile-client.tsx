@@ -21,6 +21,19 @@ type EquipmentRow = {
   updated_at: string | null;
 };
 
+type OfficialGearSearchResult = {
+  itemId: string;
+  itemName: string;
+  itemNameRu?: string | null;
+  itemNameEn?: string | null;
+  slot: "weapon" | "armor";
+  category: string;
+  rank: string | null;
+  wikiUrl: string;
+  exact: boolean;
+  score: number;
+};
+
 type Props = {
   profile: StalcraftProfileRow | null;
   showcase: StalcraftProfileShowcaseRow | null;
@@ -48,8 +61,29 @@ function getEquipmentWikiUrl(item: EquipmentRow) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function isVerifiedEquipment(item: EquipmentRow) {
-  return item.source === "api" || Boolean(item.verified_at);
+function getEquipmentVerificationMode(item: EquipmentRow) {
+  const raw = item.raw;
+  const manualMode =
+    raw && typeof raw === "object" && typeof raw.verification_mode === "string"
+      ? String(raw.verification_mode)
+      : null;
+
+  if (item.source === "api") return "api_confirmed";
+  if (manualMode) return manualMode;
+  if (item.verified_at) return "api_confirmed";
+  return "self_reported_manual";
+}
+
+function isShowcaseEquipment(item: EquipmentRow) {
+  return item.source === "api" || item.verified_by === "official-database" || Boolean(item.verified_at);
+}
+
+function getEquipmentOriginLabel(item: EquipmentRow) {
+  const mode = getEquipmentVerificationMode(item);
+  if (item.source === "api" || mode === "api_confirmed") return "API подтверждение";
+  if (mode === "self_reported_no_api") return "Ручное · API не отдал снаряжение";
+  if (mode === "self_reported_manual") return "Ручное · по оф. базе";
+  return "Ручное подтверждение";
 }
 
 function pickCharacterEquipmentId(rows: EquipmentRow[], slot: "weapon" | "armor") {
@@ -96,22 +130,30 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
     [currentCharacterId, equipmentRows],
   );
 
-  const verifiedEquipment = useMemo(
-    () => equipmentRows.filter((item) => isVerifiedEquipment(item)),
+  const showcaseEquipment = useMemo(
+    () => equipmentRows.filter((item) => isShowcaseEquipment(item)),
     [equipmentRows],
   );
   const selectedApiEquipment = useMemo(
     () => selectedCharacterEquipment.filter((item) => item.source === "api"),
     [selectedCharacterEquipment],
   );
+  const apiWeaponOptions = useMemo(
+    () => selectedApiEquipment.filter((item) => item.slot === "weapon"),
+    [selectedApiEquipment],
+  );
+  const apiArmorOptions = useMemo(
+    () => selectedApiEquipment.filter((item) => item.slot === "armor"),
+    [selectedApiEquipment],
+  );
 
   const weaponOptions = useMemo(
-    () => verifiedEquipment.filter((item) => item.slot === "weapon"),
-    [verifiedEquipment],
+    () => showcaseEquipment.filter((item) => item.slot === "weapon"),
+    [showcaseEquipment],
   );
   const armorOptions = useMemo(
-    () => verifiedEquipment.filter((item) => item.slot === "armor"),
-    [verifiedEquipment],
+    () => showcaseEquipment.filter((item) => item.slot === "armor"),
+    [showcaseEquipment],
   );
 
   const showcasePinnedWeapon = equipmentRows.find((item) => item.id === showcaseForm.pinnedWeaponId) || null;
@@ -120,6 +162,18 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
   const [gearForm, setGearForm] = useState({
     weapon: pickCharacterEquipmentId(selectedCharacterEquipment, "weapon"),
     armor: pickCharacterEquipmentId(selectedCharacterEquipment, "armor"),
+  });
+  const [manualQuery, setManualQuery] = useState<{ weapon: string; armor: string }>({
+    weapon: "",
+    armor: "",
+  });
+  const [manualResults, setManualResults] = useState<{ weapon: OfficialGearSearchResult[]; armor: OfficialGearSearchResult[] }>({
+    weapon: [],
+    armor: [],
+  });
+  const [manualLoading, setManualLoading] = useState<{ weapon: boolean; armor: boolean }>({
+    weapon: false,
+    armor: false,
   });
 
   async function selectCharacter(value: string) {
@@ -137,10 +191,10 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
   }
 
   async function syncCharacters() {
-    setStatus("Обновляю персонажей и снаряжение...");
+    setStatus("Обновляю персонажей и пытаюсь подтянуть снаряжение из API...");
     const response = await fetch("/api/stalcraft/characters/sync", { method: "POST" });
     const payload = await response.json().catch(() => ({}));
-    setStatus(response.ok ? "Персонажи и снаряжение обновлены." : payload.error || "Ошибка синхронизации.");
+    setStatus(response.ok ? "Персонажи обновлены. Если gear не появился, его можно указать вручную по официальной базе." : payload.error || "Ошибка синхронизации.");
     if (response.ok) startTransition(() => window.location.reload());
   }
 
@@ -199,6 +253,64 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
     ]);
     setGearForm((current) => ({ ...current, [slot]: equipmentId }));
     setStatus(`Снаряжение уточнено: ${payload.equipment.item_name}.`);
+  }
+
+  async function searchManualGear(slot: "weapon" | "armor") {
+    const query = manualQuery[slot].trim();
+    if (query.length < 2) {
+      setStatus("Для поиска по официальной базе введи хотя бы 2 символа.");
+      setManualResults((current) => ({ ...current, [slot]: [] }));
+      return;
+    }
+
+    setManualLoading((current) => ({ ...current, [slot]: true }));
+    const response = await fetch(`/api/stalcraft/equipment/search?slot=${slot}&limit=6&q=${encodeURIComponent(query)}`);
+    const payload = await response.json().catch(() => ({}));
+    setManualLoading((current) => ({ ...current, [slot]: false }));
+
+    if (!response.ok) {
+      setManualResults((current) => ({ ...current, [slot]: [] }));
+      setStatus(payload.error || "Не удалось найти предмет в официальной базе.");
+      return;
+    }
+
+    const results = Array.isArray(payload.results) ? payload.results : [];
+    setManualResults((current) => ({ ...current, [slot]: results }));
+    setStatus(results.length > 0 ? `Найдено ${results.length} предмет(ов) в официальной базе.` : "По этому запросу ничего не найдено.");
+  }
+
+  async function saveManualGear(slot: "weapon" | "armor", itemName: string) {
+    const cleanName = itemName.trim();
+    if (cleanName.length < 2) {
+      setStatus("Название предмета слишком короткое.");
+      return;
+    }
+
+    setStatus("Сохраняю предмет по официальной базе...");
+    const response = await fetch("/api/stalcraft/equipment", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        slot,
+        itemName: cleanName,
+        itemRank: "master",
+        itemCategory: slot,
+        allowManualFallback: true,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus(payload.error || "Ошибка сохранения предмета.");
+      return;
+    }
+
+    setEquipmentRows((current) => [
+      payload.equipment,
+      ...current.filter((item) => item.id !== payload.equipment.id && !(item.character_id === payload.equipment.character_id && item.slot === payload.equipment.slot && item.source === "manual")),
+    ]);
+    setManualQuery((current) => ({ ...current, [slot]: payload.equipment.item_name }));
+    setManualResults((current) => ({ ...current, [slot]: [] }));
+    setStatus(`Снаряжение сохранено: ${payload.equipment.item_name}. Если API не отдал вещь, она помечена как ручное подтверждение.`);
   }
 
   async function deleteGear(item: EquipmentRow) {
@@ -274,7 +386,7 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
               <h3>Настраиваемый профиль игрока</h3>
               <p className="muted">
                 Это профиль аккаунта, а не одного персонажа. Он показывает всех твоих персонажей, их кланы и фракции,
-                а оружие и броня для витрины выбираются только из подтверждённых API-предметов.
+                а оружие и броня для витрины выбираются из сохранённых вещей, подтверждённых API или официальной базой предметов.
               </p>
             </div>
           </div>
@@ -311,7 +423,7 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
                 <option value="">Не выбрано</option>
                 {weaponOptions.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.item_name}{item.character_id ? ` · ${characters.find((character) => character.character_id === item.character_id)?.character_name || item.character_id}` : ""}
+                    {item.item_name} · {item.source === "api" ? "API" : "ручное"}{item.character_id ? ` · ${characters.find((character) => character.character_id === item.character_id)?.character_name || item.character_id}` : ""}
                   </option>
                 ))}
               </select>
@@ -322,7 +434,7 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
                 <option value="">Не выбрано</option>
                 {armorOptions.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.item_name}{item.character_id ? ` · ${characters.find((character) => character.character_id === item.character_id)?.character_name || item.character_id}` : ""}
+                    {item.item_name} · {item.source === "api" ? "API" : "ручное"}{item.character_id ? ` · ${characters.find((character) => character.character_id === item.character_id)?.character_name || item.character_id}` : ""}
                   </option>
                 ))}
               </select>
@@ -360,7 +472,7 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
               <span className="eyebrow sc-eyebrow">Account characters</span>
               <h3>Все персонажи аккаунта</h3>
               <p className="muted">
-                Здесь видны все персонажи, привязанные к текущему EXBO-аккаунту, их кланы, ранги и фракции.
+                Здесь видны все персонажи, привязанные к текущему EXBO-аккаунту, их кланы, ранги, фракции и сохранённое снаряжение.
               </p>
             </div>
             <span className="badge muted">{characters.length} char(s)</span>
@@ -385,7 +497,7 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
                       <div className="sc-character-gear-item" key={item.id}>
                         <span>{item.slot}</span>
                         <strong>{item.item_name}</strong>
-                        <small>{item.source || "manual"}{item.verified_at ? " · verified" : ""}</small>
+                        <small>{getEquipmentOriginLabel(item)}</small>
                       </div>
                     )) : <p className="panel-note">Снаряжение по этому персонажу пока не найдено.</p>}
                   </div>
@@ -403,8 +515,8 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
               <span className="eyebrow sc-eyebrow">Readiness gear</span>
               <h3>Уточнение снаряжения выбранного персонажа</h3>
               <p className="muted">
-                Здесь выбираются только реально найденные у персонажа API-предметы. Так сайт не даст подтвердить вещь,
-                которой у игрока нет.
+                Сначала сайт пытается вытащить вещи из доступного STALCRAFT API. Если gear не пришёл или пришёл не полностью,
+                ниже можно выбрать предмет вручную по официальной базе EXBO. Такие записи помечаются как ручные.
               </p>
             </div>
             <span className="badge muted">{selectedCharacterEquipment.length} item(s)</span>
@@ -414,38 +526,93 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
               <label>Оружие выбранного персонажа</label>
               <select value={gearForm.weapon} onChange={(event) => setGearForm({ ...gearForm, weapon: event.target.value })}>
                 <option value="">Выбери найденное оружие</option>
-                {selectedApiEquipment.filter((item) => item.slot === "weapon").map((item) => (
+                {apiWeaponOptions.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.item_name}
                   </option>
                 ))}
               </select>
+              <p className="panel-note">
+                {apiWeaponOptions.length > 0
+                  ? "Это то, что удалось найти в raw payload API для выбранного персонажа."
+                  : "API пока не отдал оружие в читаемом виде. Используй поиск по официальной базе ниже."}
+              </p>
               <button className="secondary-button sc-secondary" disabled={!gearForm.weapon} onClick={() => saveGear("weapon")} type="button">Подтвердить оружие</button>
             </div>
             <div className="field">
               <label>Броня выбранного персонажа</label>
               <select value={gearForm.armor} onChange={(event) => setGearForm({ ...gearForm, armor: event.target.value })}>
                 <option value="">Выбери найденную броню</option>
-                {selectedApiEquipment.filter((item) => item.slot === "armor").map((item) => (
+                {apiArmorOptions.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.item_name}
                   </option>
                 ))}
               </select>
+              <p className="panel-note">
+                {apiArmorOptions.length > 0
+                  ? "Если здесь не хватает нужной брони, её можно сохранить вручную по официальной базе."
+                  : "API пока не отдал броню в читаемом виде. Используй поиск по официальной базе ниже."}
+              </p>
               <button className="secondary-button sc-secondary" disabled={!gearForm.armor} onClick={() => saveGear("armor")} type="button">Подтвердить броню</button>
             </div>
+          </div>
+          <div className="form-grid">
+            {(["weapon", "armor"] as const).map((slot) => (
+              <div className="field sc-gear-manual-field" key={`manual-${slot}`}>
+                <label>{slot === "weapon" ? "Ручной поиск оружия по оф. базе" : "Ручной поиск брони по оф. базе"}</label>
+                <div className="sc-gear-manual-row">
+                  <input
+                    value={manualQuery[slot]}
+                    onChange={(event) => setManualQuery((current) => ({ ...current, [slot]: event.target.value }))}
+                    placeholder={slot === "weapon" ? "Например: FN F2000 Tactical" : "Например: Сатурн / Центурион / SBA TANK"}
+                  />
+                  <button
+                    className="ghost-button"
+                    disabled={manualLoading[slot]}
+                    onClick={() => searchManualGear(slot)}
+                    type="button"
+                  >
+                    {manualLoading[slot] ? "Поиск..." : "Найти"}
+                  </button>
+                </div>
+                <p className="panel-note">
+                  Поиск идёт по официальной базе предметов EXBO. Если API не дал вещь, сайт сохранит её как ручное подтверждение.
+                </p>
+                {manualResults[slot].length > 0 ? (
+                  <div className="sc-gear-search-results">
+                    {manualResults[slot].map((item) => (
+                      <article className="sc-gear-search-item" key={`${slot}-${item.itemId}`}>
+                        <div>
+                          <strong>{item.itemName}</strong>
+                          <p>{item.rank || "rank?"} · {item.category}</p>
+                        </div>
+                        <div className="sc-gear-search-actions">
+                          <a className="inline-link" href={item.wikiUrl} target="_blank" rel="noreferrer">
+                            wiki
+                          </a>
+                          <button className="secondary-button sc-secondary" onClick={() => saveManualGear(slot, item.itemName)} type="button">
+                            Сохранить
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))}
           </div>
           <div className="sc-gear-grid">
             {selectedCharacterEquipment.length > 0 ? selectedCharacterEquipment.map((item) => (
               <article className="activity-card" key={item.id || `${item.slot}-${item.item_name}`}>
                 <div className="activity-card-head">
                   <span className="badge success">{item.slot}</span>
-                  <span className="activity-time">{item.source || "manual"}</span>
+                  <span className="activity-time">{item.source === "api" ? "API" : "manual"}</span>
                 </div>
                 <strong>{item.item_name}</strong>
                 <p>{item.item_rank || "master"} · {item.item_category || item.slot}</p>
                 <div className="sc-gear-meta-row">
-                  {item.verified_at ? <span className="badge muted">verified</span> : <span className="badge muted">unverified</span>}
+                  <span className="badge muted">{getEquipmentOriginLabel(item)}</span>
                   {getEquipmentWikiUrl(item) ? (
                     <a className="inline-link" href={getEquipmentWikiUrl(item) || "#"} target="_blank" rel="noreferrer">
                       Открыть на stalcraft.wiki

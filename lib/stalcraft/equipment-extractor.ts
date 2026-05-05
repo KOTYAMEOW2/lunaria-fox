@@ -1,9 +1,10 @@
 import {
   getOfficialStalcraftGearByDataPath,
   resolveOfficialStalcraftGear,
+  searchOfficialStalcraftGear,
   type OfficialStalcraftGearItem,
   type StalcraftEquipmentSlot,
-} from "@/lib/stalcraft/item-database";
+} from "./item-database";
 
 export type ExtractedStalcraftEquipment = {
   itemId: string;
@@ -17,7 +18,8 @@ export type ExtractedStalcraftEquipment = {
 };
 
 type RawCandidate = {
-  itemName: string;
+  itemName: string | null;
+  itemIdentity: string | null;
   itemRank: string | null;
   itemCategory: string | null;
   itemPath: string | null;
@@ -41,6 +43,9 @@ const WEAPON_MARKERS = [
 const ARMOR_MARKERS = [
   "/items/armor/",
   "armor",
+  "combatarmor",
+  "sciencearmor",
+  "combinedarmor",
   "scientist",
   "combat",
   "combined",
@@ -48,6 +53,7 @@ const ARMOR_MARKERS = [
   "suit",
   "outfit",
 ];
+const IDENTITY_KEYS = ["itemId", "templateId", "itemCode", "code", "resource", "item", "id"];
 
 function cleanOptionalText(value: unknown) {
   const text = String(value ?? "").trim();
@@ -65,6 +71,13 @@ function normalizePath(value: string | null | undefined) {
   const path = cleanOptionalText(value)?.replace(/\\/g, "/") || null;
   if (!path) return null;
   return path.startsWith("/") ? path : `/${path}`;
+}
+
+function normalizePathLike(value: string | null | undefined) {
+  const text = cleanOptionalText(value);
+  if (!text) return null;
+  if (!/\/items\/|items\/|\.json$/i.test(text)) return null;
+  return normalizePath(text);
 }
 
 function readTranslationLike(value: unknown) {
@@ -99,9 +112,27 @@ function extractName(value: Record<string, unknown>) {
 function extractPathLike(value: Record<string, unknown>) {
   const keys = ["data", "path", "itemPath", "template", "icon", "iconPath", "asset", "assetPath"];
   for (const key of keys) {
-    const candidate = normalizePath(readScalarText(value[key]));
+    const scalar = readScalarText(value[key]);
+    const candidate = normalizePathLike(scalar);
     if (candidate) return candidate;
   }
+  return null;
+}
+
+function looksLikeItemIdentity(value: string | null) {
+  const text = cleanOptionalText(value);
+  if (!text) return false;
+  if (/\/items\/.+\.json$/i.test(text)) return true;
+  if (/^[a-z0-9]{4,12}$/i.test(text)) return true;
+  return false;
+}
+
+function extractIdentity(value: Record<string, unknown>) {
+  for (const key of IDENTITY_KEYS) {
+    const scalar = readScalarText(value[key]);
+    if (looksLikeItemIdentity(scalar)) return cleanOptionalText(scalar);
+  }
+
   return null;
 }
 
@@ -124,11 +155,13 @@ function extractRank(value: Record<string, unknown>) {
   return rankText;
 }
 
-function detectSlot(candidate: RawCandidate, pathSegments: string[]) {
+function detectSlot(candidate: RawCandidate, pathSegments: string[], record?: Record<string, unknown>) {
   const haystack = [
     candidate.itemCategory,
     candidate.itemPath,
+    candidate.itemIdentity,
     ...pathSegments,
+    ...(record ? Object.keys(record) : []),
   ]
     .map((value) => String(value || "").toLowerCase())
     .join(" ");
@@ -163,15 +196,18 @@ function deriveScore(candidate: RawCandidate, pathSegments: string[], equipped: 
   if (equipped) score += 30;
   if (candidate.itemRank === "master") score += 24;
   if (candidate.itemCategory) score += 14;
-  if (candidate.itemName.length >= 4) score += 10;
+  if (candidate.itemIdentity) score += 12;
+  if ((candidate.itemName || "").length >= 4) score += 10;
   return score;
 }
 
 function shouldKeepCandidate(candidate: RawCandidate, equipped: boolean) {
-  if (!candidate.itemName || !candidate.slot) return false;
+  if (!candidate.slot && !candidate.itemPath && !candidate.itemIdentity) return false;
+  if (!candidate.itemName && !candidate.itemPath && !candidate.itemIdentity) return false;
   if (candidate.itemRank === "master") return true;
   if (equipped) return true;
   if (candidate.itemPath?.includes("/items/")) return true;
+  if (candidate.itemIdentity) return true;
   return false;
 }
 
@@ -179,7 +215,7 @@ function dedupeCandidates(candidates: RawCandidate[]) {
   const best = new Map<string, RawCandidate>();
 
   for (const candidate of candidates) {
-    const key = `${candidate.slot}:${candidate.itemPath || candidate.itemName.toLowerCase()}`;
+    const key = `${candidate.slot || "unknown"}:${candidate.itemPath || candidate.itemIdentity || String(candidate.itemName || "").toLowerCase()}`;
     const current = best.get(key);
     if (!current || candidate.score > current.score) {
       best.set(key, candidate);
@@ -195,7 +231,31 @@ export async function extractStalcraftEquipmentFromPayload(payload: unknown) {
 
   while (stack.length) {
     const current = stack.pop();
-    if (!current?.value || typeof current.value !== "object") continue;
+    if (!current?.value) continue;
+
+    const scalarText = readScalarText(current.value);
+    if (scalarText) {
+      const scalarPath = normalizePathLike(scalarText);
+      const scalarCandidate: RawCandidate = {
+        itemName: scalarPath ? null : scalarText,
+        itemIdentity: scalarText,
+        itemRank: null,
+        itemCategory: null,
+        itemPath: scalarPath,
+        slot: null,
+        raw: scalarText,
+        score: 0,
+      };
+
+      scalarCandidate.slot = detectSlot(scalarCandidate, current.path);
+      scalarCandidate.score = deriveScore(scalarCandidate, current.path, false);
+      if (shouldKeepCandidate(scalarCandidate, false) && hasEquipMarker(current.path)) {
+        rawCandidates.push(scalarCandidate);
+      }
+      continue;
+    }
+
+    if (typeof current.value !== "object") continue;
 
     if (Array.isArray(current.value)) {
       current.value.forEach((entry, index) => stack.push({ value: entry, path: [...current.path, String(index)] }));
@@ -205,6 +265,7 @@ export async function extractStalcraftEquipmentFromPayload(payload: unknown) {
     const record = current.value as Record<string, unknown>;
     const itemName = extractName(record);
     const itemPath = extractPathLike(record);
+    const itemIdentity = extractIdentity(record);
     const itemCategory =
       readScalarText(record.category) ||
       readScalarText(record.type) ||
@@ -213,10 +274,26 @@ export async function extractStalcraftEquipmentFromPayload(payload: unknown) {
       null;
     const itemRank = extractRank(record);
     const equipped = hasTrueFlag(record);
+    const slotHint = detectSlot(
+      {
+        itemName,
+        itemIdentity,
+        itemRank,
+        itemCategory,
+        itemPath,
+        slot: null,
+        raw: record,
+        score: 0,
+      },
+      current.path,
+      record,
+    );
+    const likelyEquipment = equipped || Boolean(slotHint) || hasEquipMarker([...current.path, ...Object.keys(record)]) || Boolean(itemPath?.includes("/items/"));
 
-    if (itemName) {
+    if ((itemName || itemPath || itemIdentity) && likelyEquipment) {
       const candidate: RawCandidate = {
         itemName,
+        itemIdentity,
         itemRank,
         itemCategory,
         itemPath,
@@ -225,7 +302,7 @@ export async function extractStalcraftEquipmentFromPayload(payload: unknown) {
         score: 0,
       };
 
-      candidate.slot = detectSlot(candidate, current.path);
+      candidate.slot = detectSlot(candidate, current.path, record);
       candidate.score = deriveScore(candidate, current.path, equipped);
 
       if (shouldKeepCandidate(candidate, equipped)) {
@@ -243,15 +320,27 @@ export async function extractStalcraftEquipmentFromPayload(payload: unknown) {
   const deduped = dedupeCandidates(rawCandidates);
   const equipment: ExtractedStalcraftEquipment[] = [];
 
+  async function resolveBestEffort(query: string | null, slot: StalcraftEquipmentSlot | null) {
+    const cleanQuery = cleanOptionalText(query);
+    if (!cleanQuery) return null;
+
+    try {
+      return (await resolveOfficialStalcraftGear(cleanQuery, slot || null)).item;
+    } catch {
+      const fallback = await searchOfficialStalcraftGear(cleanQuery, slot || null, 1);
+      return fallback[0]?.score && fallback[0].score >= 700 ? fallback[0].item : null;
+    }
+  }
+
   for (const candidate of deduped) {
     let verifiedItem = candidate.itemPath ? await getOfficialStalcraftGearByDataPath(candidate.itemPath) : null;
 
-    if (!verifiedItem && candidate.slot) {
-      try {
-        verifiedItem = (await resolveOfficialStalcraftGear(candidate.itemName, candidate.slot)).item;
-      } catch {
-        verifiedItem = null;
-      }
+    if (!verifiedItem && candidate.itemName) {
+      verifiedItem = await resolveBestEffort(candidate.itemName, candidate.slot || null);
+    }
+
+    if (!verifiedItem && candidate.itemIdentity) {
+      verifiedItem = await resolveBestEffort(candidate.itemIdentity, candidate.slot || null);
     }
 
     const slot = verifiedItem?.slot || candidate.slot;
@@ -263,8 +352,8 @@ export async function extractStalcraftEquipmentFromPayload(payload: unknown) {
     if (!keepBecauseVerified && !keepBecauseMaster) continue;
 
     equipment.push({
-      itemId: verifiedItem?.itemId || candidate.itemPath || candidate.itemName,
-      itemName: verifiedItem?.itemName || candidate.itemName,
+      itemId: verifiedItem?.itemId || candidate.itemPath || candidate.itemIdentity || candidate.itemName || crypto.randomUUID(),
+      itemName: verifiedItem?.itemName || candidate.itemName || candidate.itemIdentity || "Unknown item",
       itemRank: rank,
       itemCategory: verifiedItem?.category || candidate.itemCategory || slot,
       slot,
