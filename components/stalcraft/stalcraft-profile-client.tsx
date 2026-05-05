@@ -62,6 +62,7 @@ function getEquipmentWikiUrl(item: EquipmentRow) {
 }
 
 function getEquipmentVerificationMode(item: EquipmentRow) {
+  if (item.source === "screenshot") return "screenshot_verified";
   const raw = item.raw;
   const manualMode =
     raw && typeof raw === "object" && typeof raw.verification_mode === "string"
@@ -80,10 +81,17 @@ function isShowcaseEquipment(item: EquipmentRow) {
 
 function getEquipmentOriginLabel(item: EquipmentRow) {
   const mode = getEquipmentVerificationMode(item);
+  if (mode === "screenshot_verified") return "Скрин · bot OCR";
   if (item.source === "api" || mode === "api_confirmed") return "API подтверждение";
   if (mode === "self_reported_no_api") return "Ручное · API не отдал снаряжение";
   if (mode === "self_reported_manual") return "Ручное · по оф. базе";
   return "Ручное подтверждение";
+}
+
+function getEquipmentShortSource(item: EquipmentRow) {
+  if (item.source === "api") return "API";
+  if (item.source === "screenshot") return "скрин";
+  return "ручное";
 }
 
 function pickCharacterEquipmentId(rows: EquipmentRow[], slot: "weapon" | "armor") {
@@ -423,7 +431,7 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
                 <option value="">Не выбрано</option>
                 {weaponOptions.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.item_name} · {item.source === "api" ? "API" : "ручное"}{item.character_id ? ` · ${characters.find((character) => character.character_id === item.character_id)?.character_name || item.character_id}` : ""}
+                    {item.item_name} · {getEquipmentShortSource(item)}{item.character_id ? ` · ${characters.find((character) => character.character_id === item.character_id)?.character_name || item.character_id}` : ""}
                   </option>
                 ))}
               </select>
@@ -434,7 +442,7 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
                 <option value="">Не выбрано</option>
                 {armorOptions.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.item_name} · {item.source === "api" ? "API" : "ручное"}{item.character_id ? ` · ${characters.find((character) => character.character_id === item.character_id)?.character_name || item.character_id}` : ""}
+                    {item.item_name} · {getEquipmentShortSource(item)}{item.character_id ? ` · ${characters.find((character) => character.character_id === item.character_id)?.character_name || item.character_id}` : ""}
                   </option>
                 ))}
               </select>
