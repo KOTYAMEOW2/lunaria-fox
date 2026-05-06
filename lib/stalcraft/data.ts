@@ -168,19 +168,33 @@ export async function saveManualStalcraftEquipment(
     itemRank?: string | null;
     itemCategory?: string | null;
     allowManualFallback?: boolean | null;
+    characterId?: string | null;
+    verificationSource?: "manual" | "screenshot" | null;
+    verificationBy?: string | null;
+    ocrMeta?: Record<string, unknown> | null;
   },
 ) {
   const profile = await getStalcraftProfile(discordUserId);
-  if (!profile?.selected_character_id) throw new Error("Сначала выбери STALCRAFT-персонажа.");
+  const targetCharacterId = cleanOptionalText(payload.characterId) || profile?.selected_character_id || null;
+  if (!targetCharacterId) throw new Error("Сначала выбери STALCRAFT-персонажа.");
 
   const now = new Date().toISOString();
   const supabase = requireSupabase();
+
+  const { data: targetCharacter, error: targetCharacterError } = await supabase
+    .from("sc_character_cache")
+    .select("character_id")
+    .eq("discord_user_id", discordUserId)
+    .eq("character_id", targetCharacterId)
+    .maybeSingle();
+  if (targetCharacterError) throw targetCharacterError;
+  if (!targetCharacter) throw new Error("Персонаж для сохранения снаряжения не найден в твоём аккаунте.");
 
   const { data: ownedItems, error: ownedItemsError } = await supabase
     .from("sc_equipment")
     .select("id, slot, item_id, item_name, item_rank, item_category, source, verified_at, raw")
     .eq("discord_user_id", discordUserId)
-    .eq("character_id", profile.selected_character_id)
+    .eq("character_id", targetCharacterId)
     .eq("source", "api");
   if (ownedItemsError) throw ownedItemsError;
 
@@ -189,6 +203,8 @@ export async function saveManualStalcraftEquipment(
   let requestedInput = cleanOptionalText(payload.itemName);
   let sourceApiRow: any = null;
   let verificationMode: "api_confirmed" | "self_reported_no_api" | "self_reported_manual" = "api_confirmed";
+  const verificationSource = payload.verificationSource === "screenshot" ? "screenshot" : "manual";
+  const isScreenshotVerification = verificationSource === "screenshot";
 
   if (payload.equipmentId) {
     sourceApiRow = (ownedItems || []).find((row: any) => row.id === payload.equipmentId && row.slot === payload.slot);
@@ -255,9 +271,9 @@ export async function saveManualStalcraftEquipment(
     .from("sc_equipment")
     .delete()
     .eq("discord_user_id", discordUserId)
-    .eq("character_id", profile.selected_character_id)
+    .eq("character_id", targetCharacterId)
     .eq("slot", official.slot)
-    .eq("source", "manual");
+    .in("source", ["manual", "screenshot"]);
   if (cleanupError) throw cleanupError;
 
   const { data, error } = await supabase
@@ -265,28 +281,29 @@ export async function saveManualStalcraftEquipment(
     .upsert(
       {
         discord_user_id: discordUserId,
-        character_id: profile.selected_character_id,
+        character_id: targetCharacterId,
         slot: official.slot,
-        item_id: `manual-${official.itemId}`,
+        item_id: `${verificationSource}-${official.itemId}`,
         item_name: official.itemName,
         item_rank: official.rank || payload.itemRank?.trim() || "master",
         item_level: official.rank || payload.itemRank?.trim() || "master",
         item_category: official.category || payload.itemCategory?.trim() || official.slot,
-        source: "manual",
-        verified_by: "official-database",
-        verified_at: verificationMode === "api_confirmed" ? now : null,
+        source: verificationSource,
+        verified_by: isScreenshotVerification ? (payload.verificationBy || "site-screenshot-ocr") : "official-database",
+        verified_at: isScreenshotVerification || verificationMode === "api_confirmed" ? now : null,
         raw: {
           source: "site",
           validated_at: now,
           requested_input: requestedInput,
           source_equipment_id: payload.equipmentId || sourceApiRow?.id || null,
-          verification_mode: verificationMode,
+          verification_mode: isScreenshotVerification ? "screenshot_verified" : verificationMode,
           confidence: resolvedConfidence,
           official_item_id: official.itemId,
           official_path: official.itemPath,
           official_name_ru: official.itemNameRu,
           official_name_en: official.itemNameEn,
           wiki_url: official.wikiUrl,
+          ...(payload.ocrMeta && typeof payload.ocrMeta === "object" ? { ocr: payload.ocrMeta } : {}),
         },
         updated_at: now,
       },

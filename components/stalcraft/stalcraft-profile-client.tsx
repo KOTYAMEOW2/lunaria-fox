@@ -1,6 +1,11 @@
 "use client";
 
 import { startTransition, useMemo, useState } from "react";
+import {
+  analyzeGearScreenshotInBrowser,
+  type GearScreenshotAnalysis,
+  type GearScreenshotSearchResult,
+} from "@/components/stalcraft/gear-screenshot-ocr";
 import type {
   StalcraftCharacterCacheRow,
   StalcraftProfileRow,
@@ -21,18 +26,7 @@ type EquipmentRow = {
   updated_at: string | null;
 };
 
-type OfficialGearSearchResult = {
-  itemId: string;
-  itemName: string;
-  itemNameRu?: string | null;
-  itemNameEn?: string | null;
-  slot: "weapon" | "armor";
-  category: string;
-  rank: string | null;
-  wikiUrl: string;
-  exact: boolean;
-  score: number;
-};
+type OfficialGearSearchResult = GearScreenshotSearchResult;
 
 type Props = {
   profile: StalcraftProfileRow | null;
@@ -183,6 +177,10 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
     weapon: false,
     armor: false,
   });
+  const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
+  const [screenshotSlotHint, setScreenshotSlotHint] = useState<"auto" | "weapon" | "armor">("auto");
+  const [screenshotBusy, setScreenshotBusy] = useState(false);
+  const [screenshotAnalysis, setScreenshotAnalysis] = useState<GearScreenshotAnalysis | null>(null);
 
   async function selectCharacter(value: string) {
     const [region, characterId] = value.split(":");
@@ -319,6 +317,97 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
     setManualQuery((current) => ({ ...current, [slot]: payload.equipment.item_name }));
     setManualResults((current) => ({ ...current, [slot]: [] }));
     setStatus(`Снаряжение сохранено: ${payload.equipment.item_name}. Если API не отдал вещь, она помечена как ручное подтверждение.`);
+  }
+
+  async function searchOfficialGear(query: string, slot?: "weapon" | "armor" | null) {
+    const response = await fetch(`/api/stalcraft/equipment/search?limit=4&q=${encodeURIComponent(query)}${slot ? `&slot=${slot}` : ""}`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || "Не удалось найти предмет в официальной базе.");
+    }
+    return (Array.isArray(payload.results) ? payload.results : []) as OfficialGearSearchResult[];
+  }
+
+  async function saveScreenshotGear(analysis: GearScreenshotAnalysis) {
+    if (!analysis.nicknameMatch || !analysis.itemMatch) {
+      setStatus("Сначала распознай скрин и дождись совпадения ника и предмета.");
+      return;
+    }
+
+    setStatus("Сохраняю предмет со скрина...");
+    const response = await fetch("/api/stalcraft/equipment", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        slot: analysis.itemMatch.item.slot,
+        itemName: analysis.itemMatch.item.itemName,
+        characterId: analysis.nicknameMatch.character.character_id,
+        verificationSource: "screenshot",
+        verificationBy: "site-screenshot-ocr",
+        allowManualFallback: true,
+        itemRank: analysis.itemMatch.item.rank || "master",
+        itemCategory: analysis.itemMatch.item.category || analysis.itemMatch.item.slot,
+        ocrMeta: {
+          nickname_line: analysis.nicknameMatch.line,
+          nickname_score: analysis.nicknameMatch.score,
+          item_line: analysis.itemMatch.line,
+          item_score: analysis.itemMatch.score,
+          item_id: analysis.itemMatch.item.itemId,
+          item_slot: analysis.itemMatch.item.slot,
+          recognized: analysis.recognized
+            .filter((entry) => entry.text)
+            .slice(0, 10)
+            .map((entry) => ({ key: entry.key, mode: entry.mode, text: entry.text.slice(0, 500) })),
+        },
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus(payload.error || "Не удалось сохранить распознанное снаряжение.");
+      return;
+    }
+
+    setEquipmentRows((current) => [
+      payload.equipment,
+      ...current.filter((item) => item.id !== payload.equipment.id && !(item.character_id === payload.equipment.character_id && item.slot === payload.equipment.slot && ["manual", "screenshot"].includes(String(item.source || "")))),
+    ]);
+
+    setStatus(`Скрин принят: ${payload.equipment.item_name} сохранён для персонажа ${analysis.nicknameMatch.character.character_name}.`);
+  }
+
+  async function recognizeScreenshotGear() {
+    if (!screenshotFile) {
+      setStatus("Сначала выбери скрин со снаряжением.");
+      return;
+    }
+
+    setScreenshotBusy(true);
+    setStatus("Распознаю ник и предмет со скрина прямо в браузере...");
+    try {
+      const analysis = await analyzeGearScreenshotInBrowser({
+        file: screenshotFile,
+        characters,
+        searchOfficial: searchOfficialGear,
+        slotHint: screenshotSlotHint === "auto" ? null : screenshotSlotHint,
+      });
+      setScreenshotAnalysis(analysis);
+
+      if (!analysis.nicknameMatch) {
+        setStatus("Не удалось уверенно прочитать ник на скрине. Сделай так, чтобы ник в правом верхнем углу был виден чётче.");
+        return;
+      }
+
+      if (!analysis.itemMatch) {
+        setStatus("Ник найден, но название предмета прочиталось плохо. Открой карточку вещи так, чтобы красное название было видно полностью.");
+        return;
+      }
+
+      await saveScreenshotGear(analysis);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Не удалось распознать скрин.");
+    } finally {
+      setScreenshotBusy(false);
+    }
   }
 
   async function deleteGear(item: EquipmentRow) {
@@ -529,6 +618,48 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
             </div>
             <span className="badge muted">{selectedCharacterEquipment.length} item(s)</span>
           </div>
+          <div className="sc-gear-screenshot-box">
+            <div className="form-grid">
+              <div className="field">
+                <label>Скрин инвентаря / экипировки</label>
+                <input
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] || null;
+                    setScreenshotFile(file);
+                    setScreenshotAnalysis(null);
+                  }}
+                  type="file"
+                />
+                <p className="panel-note">
+                  Сайт сравнит ник на скрине с твоими зарегистрированными персонажами и попробует распознать название вещи.
+                </p>
+              </div>
+              <div className="field">
+                <label>Подсказка по слоту</label>
+                <select value={screenshotSlotHint} onChange={(event) => setScreenshotSlotHint(event.target.value as "auto" | "weapon" | "armor")}>
+                  <option value="auto">Авто</option>
+                  <option value="weapon">Оружие</option>
+                  <option value="armor">Броня</option>
+                </select>
+                <button className="secondary-button sc-secondary" disabled={!screenshotFile || screenshotBusy} onClick={recognizeScreenshotGear} type="button">
+                  {screenshotBusy ? "Распознаю..." : "Распознать со скрина"}
+                </button>
+              </div>
+            </div>
+            {screenshotAnalysis ? (
+              <div className="sc-gear-screenshot-result">
+                <div className="sc-gear-screenshot-meta">
+                  <span>Ник: {screenshotAnalysis.nicknameMatch ? `${screenshotAnalysis.nicknameMatch.character.character_name}` : "не найден"}</span>
+                  <span>Предмет: {screenshotAnalysis.itemMatch ? screenshotAnalysis.itemMatch.item.itemName : "не найден"}</span>
+                </div>
+                <p className="panel-note">
+                  {screenshotAnalysis.nicknameMatch ? `OCR-строка ника: ${screenshotAnalysis.nicknameMatch.line}. ` : ""}
+                  {screenshotAnalysis.itemMatch ? `OCR-строка предмета: ${screenshotAnalysis.itemMatch.line}.` : ""}
+                </p>
+              </div>
+            ) : null}
+          </div>
           <div className="form-grid">
             <div className="field">
               <label>Оружие выбранного персонажа</label>
@@ -615,7 +746,7 @@ export function StalcraftProfileClient({ profile, showcase, characters, equipmen
               <article className="activity-card" key={item.id || `${item.slot}-${item.item_name}`}>
                 <div className="activity-card-head">
                   <span className="badge success">{item.slot}</span>
-                  <span className="activity-time">{item.source === "api" ? "API" : "manual"}</span>
+                  <span className="activity-time">{getEquipmentShortSource(item)}</span>
                 </div>
                 <strong>{item.item_name}</strong>
                 <p>{item.item_rank || "master"} · {item.item_category || item.slot}</p>

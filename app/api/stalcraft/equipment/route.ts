@@ -11,6 +11,10 @@ const schema = z.object({
   itemRank: z.string().max(60).nullable().optional(),
   itemCategory: z.string().max(60).nullable().optional(),
   allowManualFallback: z.boolean().nullable().optional(),
+  characterId: z.string().min(2).max(120).nullable().optional(),
+  verificationSource: z.enum(["manual", "screenshot"]).nullable().optional(),
+  verificationBy: z.string().max(120).nullable().optional(),
+  ocrMeta: z.record(z.string(), z.unknown()).nullable().optional(),
 }).refine((value) => Boolean(value.equipmentId || (value.itemName && value.itemName.trim().length >= 2)), {
   message: "Нужно выбрать найденный предмет или указать название.",
   path: ["itemName"],
